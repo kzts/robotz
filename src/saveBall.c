@@ -19,13 +19,6 @@ char   filename_ball[NUM];
 int    ball_positions[NUM][XYXY];
 double data_time[NUM];
 
-/*
-void setBallPositions(int i){
-  sscanf( buffer1, "%d %d", &ball_positions[i][0], &ball_positions[i][1] );
-  sscanf( buffer2, "%d %d", &ball_positions[i][2], &ball_positions[i][3] );
-}
-*/
-
 void getFileName(void){
   time_t timer;
   struct tm *local;
@@ -134,48 +127,26 @@ int main(int argc, char* argv[]){
 
   int i = 0;
   while (1){
+    getElaspedTime(i);
+
     // communicate 1
     recv( clientSocket1, buffer1, NUM_BUFFER, 0);
     //printf( "buffer1: %s\n", buffer1 );
-    /*
-    if( strcmp( buffer1, "END" ) == 0 ){
-      saveDat(i);      
-      break;
-    }else
-      if ( strcmp( buffer1, "no" ) != 0 )
-	sscanf( buffer1, "%d %d", &ball_positions[i][0], &ball_positions[i][1] );
-    */
     if( strcmp( buffer1, "END" ) == 0 )
       break;
     else
       sscanf( buffer1, "%d %d", &ball_positions[i][0], &ball_positions[i][1] );
     //printf("ball1: %s \n", buffer1 );
-    //strcpy( buffer1, "no" );
-    //send( clientSocket1, "no", NUM_BUFFER, 0);
 
     // communicate 2
     recv( clientSocket2, buffer2, NUM_BUFFER, 0);
     //printf( "buffer2: %s\n", buffer2 );
-    /*
-    if( strcmp( buffer2, "END" ) == 0 ){
-        saveDat(i); 
-	break;
-    }else
-      if ( strcmp( buffer2, "no" ) != 0 )
-	sscanf( buffer2, "%d %d", &ball_positions[i][2], &ball_positions[i][3] );
-    */
     if( strcmp( buffer2, "END" ) == 0 )
       break;
     else
       sscanf( buffer2, "%d %d", &ball_positions[i][2], &ball_positions[i][3] );
-    
     //printf("ball2: %s \n", buffer2);
-    //strcpy( buffer2, "no" );
-    //send( clientSocket2, "no", NUM_BUFFER, 0);
 
-    // set data
-    getElaspedTime(i);
-    //setBallPositions(i);
     i++;
   }
   saveDat(i);
