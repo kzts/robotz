@@ -5,7 +5,6 @@
 #include <netinet/in.h>
 #include <string.h>
 #include <unistd.h>
-#define PITCHING_MACHINE_IP "192.168.2.20"
 
 //#define NUM_OF_BUFFER 255
 //#define NUM_OF_BUFFER 99999
@@ -213,15 +212,14 @@ int getPhaseNumber( double elasped_t ){
   return phase;
 }
 
-int main(int argc, char* argv[]){
-
-  /*
+int main(int argc, char* argv[])
+{
   if ( argc != 2 ){
-    printf("input server ip address.\n");
+    printf("input Pitching macine's ip address.\n");
     return -1;
   }
   char* ip_address = argv[1];
-  */
+
 
   // socket 
   int clientSocket;
@@ -231,8 +229,7 @@ int main(int argc, char* argv[]){
   clientSocket = socket(PF_INET, SOCK_STREAM, 0);
   serverAddr.sin_family = AF_INET;
   serverAddr.sin_port = htons(7891);
-  //serverAddr.sin_addr.s_addr = inet_addr(ip_address);
-  serverAddr.sin_addr.s_addr = inet_addr(PITCHING_MACHINE_IP);
+  serverAddr.sin_addr.s_addr = inet_addr(ip_address);
   memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);  
 
   addr_size = sizeof serverAddr;

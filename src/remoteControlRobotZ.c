@@ -5,7 +5,6 @@
 #include <netinet/in.h>
 #include <string.h>
 #include <unistd.h>
-#define PITCHING_MACHINE_IP "192.168.2.20"
 
 //#define NUM_OF_BUFFER 255
 //#define NUM_OF_BUFFER 99999
@@ -215,13 +214,11 @@ int getPhaseNumber( double elasped_t ){
 
 int main(int argc, char* argv[]){
 
-  /*
   if ( argc != 2 ){
-    printf("input server ip address.\n");
+    printf("input robotZ's ip address.\n");
     return -1;
   }
   char* ip_address = argv[1];
-  */
 
   // socket 
   int clientSocket;
@@ -231,8 +228,8 @@ int main(int argc, char* argv[]){
   clientSocket = socket(PF_INET, SOCK_STREAM, 0);
   serverAddr.sin_family = AF_INET;
   serverAddr.sin_port = htons(7891);
-  //serverAddr.sin_addr.s_addr = inet_addr(ip_address);
-  serverAddr.sin_addr.s_addr = inet_addr(PITCHING_MACHINE_IP);
+  serverAddr.sin_addr.s_addr = inet_addr(ip_address);
+  //serverAddr.sin_addr.s_addr = inet_addr(PITCHING_MACHINE_IP);
   memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);  
 
   addr_size = sizeof serverAddr;
@@ -251,7 +248,7 @@ int main(int argc, char* argv[]){
   for ( i = 0; i < NUM_OF_SAMPLES; i++ ){
     now_time = getTime(i);
     now_phase = getPhaseNumber( now_time );
-    //printf( "%d \t %d \t %8.3f \n", i, now_phase, now_time );
+    printf( "%d \t %d \t %8.3f \n", i, now_phase, now_time );
 
     if ( now_phase >= NUM_OF_PHASE )
       break;
@@ -269,7 +266,7 @@ int main(int argc, char* argv[]){
       printf("now phase: %d\n", now_phase );
       strcpy( buffer_send, "command: " ); 
       //strcpy( buffer_send, "command: 0.00 0.450 0.333 0  0 0 0 0  0 0 0 0  0 0 0 0 ");
-      //printf("buffer in main: %s\n", buffer_send );
+      printf("buffer in main: %s\n", buffer_send );
       setCommandBuffer( now_phase );
     }else{
       strcpy( buffer_send, "no" );
