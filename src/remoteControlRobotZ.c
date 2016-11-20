@@ -46,7 +46,7 @@ void saveResults(void){
   FILE *fp_res;
   char str[MAX_str];
 
-  fp_res = fopen( "../data/pitching/results.dat", "w");
+  fp_res = fopen( "../data/robotz/results.dat", "w");
 
   if (fp_res == NULL){
     printf("File open error (results)\n");
@@ -89,7 +89,7 @@ void loadCommand(void){
   double val;
 
 
-  fp_cmd = fopen( "../data/pitching/command.dat", "r");
+  fp_cmd = fopen( "../data/robotz/command.dat", "r");
 
   if (fp_cmd == NULL){
     printf("File open error (command)\n");
