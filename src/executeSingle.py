@@ -11,8 +11,8 @@ pressure  = sys.argv[1]
 
 # set file name
 d    = datetime.datetime.today()
-today = str("{0:04d}".format(d.year)) + str("{0:02d}".format(d.month)) + str("{0:02d}".format(d.day))
-now  = str("{0:02d}".format(d.hour)) + str("{0:02d}".format(d.minute)) + str("{0:02d}".format(d.second))
+today = "{0:04d}".format(d.year) + "{0:02d}".format(d.month)  + "{0:02d}".format(d.day)
+now   = "{0:02d}".format(d.hour) + "{0:02d}".format(d.minute) + "{0:02d}".format(d.second)
 
 # get ip
 proc_ip = subprocess.Popen( ['cat ../data/single/ip.dat'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
