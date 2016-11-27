@@ -246,6 +246,8 @@ void getIPAddress( char* filename, char* ip_address ){
 
 int main(int argc, char* argv[])
 {
+  gettimeofday( &ini_t, NULL );
+
   char ip_pitching[NUM_OF_BUFFER];
   getIPAddress( filename_ip_pitching,  ip_pitching );   
   printf( "ip address: %s (pitching)\n", ip_pitching );
@@ -280,7 +282,7 @@ int main(int argc, char* argv[])
   double now_time;
 
   loadCommand();
-  gettimeofday( &ini_t, NULL );
+
  
   //strcpy( buffer, "no" );
   int i;
