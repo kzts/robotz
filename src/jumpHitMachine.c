@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -13,7 +14,6 @@ char filename_ip_camera2[] = "../data/params/ip_camera2.dat";
 //#define NUM_BUFFER 255
 #define NUM_BUFFER 1024
 #define XY 2
-//char ip_address[255];
 
 // robotz
 #define NUM_OF_PHASE 10
@@ -37,8 +37,10 @@ char   filename_command_original[NUM] = "../data/robotz/command.dat";
 char   filename_ball[NUM];
 char   filename_results[NUM];
 char   filename_command[NUM];
-int    ball_positions1[NUM][XY];
-int    ball_positions2[NUM][XY];
+//int    ball_positions1[NUM][XY];
+//int    ball_positions2[NUM][XY];
+double ball_positions1[NUM][XY];
+double ball_positions2[NUM][XY];
 double time0[NUM];
 double time1[NUM];
 double time2[NUM];
@@ -53,9 +55,10 @@ void loadCommand(void){
   unsigned int i, j;
   double sum_time;
   unsigned int phase;
-  char s[NUM_OF_CHANNELS + 2][NUM_BUFFER];
+  //char s[NUM_OF_CHANNELS + 2][NUM_BUFFER];
   char *tmp;
   double val;
+  double deb;
 
   fp_cmd = fopen( filename_command_original, "r");
 
@@ -64,16 +67,25 @@ void loadCommand(void){
     return;
   }
 
-  fgets( str, NUM_BUFFER, fp_cmd);
+  fgets( str, NUM_BUFFER, fp_cmd );
+  //printf("buffer: %s\n", str );
   for (i = 0; i < NUM_OF_PHASE; i++){
     fgets( str, NUM_BUFFER, fp_cmd);
+    //printf("buffer: %s\n", str );
     tmp = strtok( str, " " ); // number
     tmp = strtok( NULL, " " );
     phase_time[i] = atoi( tmp );
+    //printf("%s ", tmp );
     for (j = 0; j < NUM_OF_CHANNELS; j++){
       tmp = strtok( NULL, " " );
+      //printf("%s ", tmp );
       value_valves_phase[i][j] = atof( tmp );
+      //deb = atof( tmp );
+      //printf("%4.3f ", atof(tmp) );
+      //printf("%4.3f ", deb );
+      //printf("%s:%3.2f ", tmp, deb );
     }
+    //printf("\n");
   }
   
   for (i = 0; i < NUM_OF_PHASE; i++){
@@ -82,7 +94,7 @@ void loadCommand(void){
       sum_time = sum_time + phase_time[j];
     time_switch[i] = sum_time;
   }
-  
+  // debug print
   for (i = 0; i < NUM_OF_PHASE; i++)
     printf( "%d ", phase_time[i]);
     //printf( "%3.2f ", phase_time[i]);
@@ -170,7 +182,7 @@ void saveDat(void){
   char str[NUM_BUFFER];
 
   // open
-  fp_bal = fopen( filename_ball, "w" );
+  fp_bal = fopen( filename_ball,    "w" );
   fp_res = fopen( filename_results, "w" );
   fp_cmd = fopen( filename_command, "w" );
   if ( fp_bal == NULL ){
@@ -193,7 +205,8 @@ void saveDat(void){
     fputs( str, fp_bal );
     // camera 1
     for ( j = 0; j < XY; j++){
-      sprintf( str, "%d ", ball_positions1[i][j] );
+      //sprintf( str, "%d ", ball_positions1[i][j] );
+      sprintf( str, "%8.3f ", ball_positions1[i][j] );
       fputs( str, fp_bal );
     }
     // time 2
@@ -201,7 +214,8 @@ void saveDat(void){
     fputs( str, fp_bal );
     // camera 2
     for ( j = 0; j < XY; j++ ){
-      sprintf( str, "%d ", ball_positions2[i][j] );
+      //sprintf( str, "%d ", ball_positions2[i][j] );
+      sprintf( str, "%8.3f ", ball_positions2[i][j] );
       fputs( str, fp_bal );
     }
     // time 2
@@ -285,6 +299,8 @@ void getIPAddress( char* filename, char* ip_address ){
 }
 
 int main(){
+  gettimeofday( &ini_t, NULL );
+
   // filename
   getFileNames();
   loadCommand();
@@ -321,7 +337,6 @@ int main(){
     maxfd = camera2_socket;
 
   // loop
-  gettimeofday( &ini_t, NULL );
   int now_phase = 0, old_phase = -1;
   int c1 = 0, c2 = 0, r = 0; // counter
   while (1){
@@ -331,21 +346,25 @@ int main(){
     if ( FD_ISSET( camera1_socket, &fds )){
       memset( buffer, 0, sizeof(buffer) );
       recv( camera1_socket, buffer, sizeof(buffer), 0 );
+      send( camera1_socket, ".",    sizeof(buffer), 0 );
       
       time1[c1] = getElaspedTime();
-      sscanf( buffer, "%d %d", &ball_positions1[c1][0], &ball_positions1[c1][1] );
-      printf( "camera1: %s\n", buffer );
+      //sscanf( buffer, "%d %d", &ball_positions1[c1][0], &ball_positions1[c1][1] );
+      sscanf( buffer, "%lf %lf", &ball_positions1[c1][0], &ball_positions1[c1][1] );
+      //printf( "camera1: %s\n", buffer );
       c1++;
     }
     // camera2
     if ( FD_ISSET( camera2_socket, &fds )){
       memset( buffer, 0, sizeof(buffer));
       recv( camera2_socket, buffer, sizeof(buffer), 0 );
+      send( camera2_socket, ".",    sizeof(buffer), 0 );
 
       time2[c2] = getElaspedTime();
-      sscanf( buffer, "%d %d", &ball_positions2[c2][0], &ball_positions2[c2][1] );
+      //sscanf( buffer, "%d %d", &ball_positions2[c2][0], &ball_positions2[c2][1] );
+      sscanf( buffer, "%lf %lf", &ball_positions2[c2][0], &ball_positions2[c2][1] );
       //if ( strlen( buffer ) > 5 )
-      printf( "camera2: %s\n", buffer );
+      //printf( "camera2: %s\n", buffer );
       c2++;
     }
     // robotz    
@@ -368,7 +387,7 @@ int main(){
       
       // send command
       if ( now_phase != old_phase ){
-	printf("now phase: %d\n", now_phase );
+	//printf("now phase: %d\n", now_phase );
 	strcpy( buffer, "command: " ); 
 	setCommandBuffer( now_phase );
       }else{
@@ -381,6 +400,10 @@ int main(){
       old_phase = now_phase;
     }
   }
+  // terminate server
+  send( robotz_socket,  "END", sizeof(buffer), 0 );
+  send( camera1_socket, "END", sizeof(buffer), 0 );
+  send( camera2_socket, "END", sizeof(buffer), 0 );
 
   saveDat();
 
