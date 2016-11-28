@@ -18,7 +18,7 @@ char filename_ip_camera2[] = "../data/params/ip_camera2.dat";
 // robotz
 #define NUM_OF_PHASE 10
 #define NUM_ADC_PORT 8
-#define NUM_ADC 2
+#define NUM_ADC 3
 #define NUM_OF_CHANNELS 16
 
 double data_valves[NUM][NUM_OF_CHANNELS] = {};
@@ -338,6 +338,17 @@ int main(){
   if ( camera2_socket > robotz_socket && camera2_socket > camera1_socket )
     maxfd = camera2_socket;
 
+  // check ready
+  memset( buffer, 0, sizeof(buffer) );
+  recv( camera1_socket, buffer, 5, 0 );
+  printf( "camera1: %s\n", buffer );
+  memset( buffer, 0, sizeof(buffer) );
+  recv( camera2_socket, buffer, 5, 0 );
+  printf( "camera2: %s\n", buffer );
+  memset( buffer, 0, sizeof(buffer) );
+  recv( robotz_socket, buffer, 5, 0 );
+  printf( "robotz: %s\n", buffer );
+
   // loop
   int now_phase = 0, old_phase = -1;
   int c1 = 0, c2 = 0, r = 0; // counter
@@ -348,7 +359,8 @@ int main(){
     if ( FD_ISSET( camera1_socket, &fds )){
       memset( buffer, 0, sizeof(buffer) );
       recv( camera1_socket, buffer, sizeof(buffer), 0 );
-      send( camera1_socket, ".",    sizeof(buffer), 0 );
+      //send( camera1_socket, ".",    sizeof(buffer), 0 );
+      send( camera1_socket, ".  ", 3, 0 );
       
       time1[c1] = getElaspedTime();
       //sscanf( buffer, "%d %d", &ball_positions1[c1][0], &ball_positions1[c1][1] );
@@ -360,7 +372,8 @@ int main(){
     if ( FD_ISSET( camera2_socket, &fds )){
       memset( buffer, 0, sizeof(buffer));
       recv( camera2_socket, buffer, sizeof(buffer), 0 );
-      send( camera2_socket, ".",    sizeof(buffer), 0 );
+      //send( camera2_socket, ".",    sizeof(buffer), 0 );
+      send( camera2_socket, ".  ", 3, 0 );
 
       time2[c2] = getElaspedTime();
       //sscanf( buffer, "%d %d", &ball_positions2[c2][0], &ball_positions2[c2][1] );
@@ -403,9 +416,12 @@ int main(){
     }
   }
   // terminate server
-  send( robotz_socket,  "END", sizeof(buffer), 0 );
-  send( camera1_socket, "END", sizeof(buffer), 0 );
-  send( camera2_socket, "END", sizeof(buffer), 0 );
+  //send( robotz_socket,  "END", sizeof(buffer), 0 );
+  //send( camera1_socket, "END", sizeof(buffer), 0 );
+  //send( camera2_socket, "END", sizeof(buffer), 0 );
+  send( robotz_socket,  "END", 3, 0 );
+  send( camera1_socket, "END", 3, 0 );
+  send( camera2_socket, "END", 3, 0 );
 
   saveDat();
 
