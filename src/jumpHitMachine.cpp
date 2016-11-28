@@ -32,7 +32,8 @@ char filename_ip_camera2[] = "../data/params/ip_camera2.dat";
 //#define NUM_BUFFER 255
 #define NUM_BUFFER 1024
 #define XY 2
-#define NUM_PREDICT 100
+//#define NUM_PREDICT 100
+#define NUM_PREDICT 300
 #define XYZ 3
 #define TXY 3
 
@@ -286,6 +287,8 @@ void setCommandBuffer(int phase){
 
 void setSwingCommand(void){
   value_valves[NUM_ARM] = Arm_pressure;
+  memset( buffer, 0, sizeof(buffer) );
+  strcpy( buffer, "command: " ); 
   char tmp[9];
   for ( int j = 0; j < NUM_OF_CHANNELS; j++ ){
     sprintf( tmp, "%4.3f ", value_valves[j] );
@@ -294,9 +297,11 @@ void setSwingCommand(void){
 }
 
 void setExhaustCommand(void){
-  char tmp[9];
+  memset( buffer, 0, sizeof(buffer) );
+  strcpy( buffer, "command: " ); 
+  char tmp[] = "0.00 ";
   for ( int j = 0; j < NUM_OF_CHANNELS; j++ ){
-    sprintf( tmp, "%4.3f ", 0.0 );
+    //sprintf( tmp, "%4.3f ", 0.0 );
     strcat( buffer, tmp );
   }
 }
@@ -540,6 +545,7 @@ int main(){
   int now_phase = 0, old_phase = -1;
   int c1 = 0, c2 = 0, r = 0; // counter
   int swing_time = 100000;
+  int is_swing = 0;
   while (1){
     // terminate
     int now_time = getElaspedTime();
@@ -550,13 +556,14 @@ int main(){
     break;
     }
     // predict
-    int wait_time = 100;
+    int wait_time = 1000;
     if ( c1 > 5 && c2 > 5){
       getVisionCoefficients(c1,c2);
       int now_time = getElaspedTime();
       MatrixXd ball_predict_world = predictBallTrajectory( now_time, coeffs_reg );
       int hit_time = getHitTime( ball_predict_world, hit_position );
       wait_time = hit_time - now_time;
+      cout << "wait: " << wait_time << endl;
     }
     // initialize
     memcpy( &fds, &readfds, sizeof(fd_set) ); // ititialize
@@ -628,12 +635,15 @@ int main(){
 
       // send command
       //if ( now_phase != old_phase ){
-      if ( abs( wait_time - wait_time_opt ) < 5 ){
+      //if ( abs( wait_time - wait_time_opt ) < 5 ){
+      //if ( wait_time < wait_time_opt + 5 ){
+      if ( wait_time < wait_time_opt + 5 && is_swing < 1 ){
 	//printf("now phase: %d\n", now_phase );
-	strcpy( buffer, "command: " ); 
+	//strcpy( buffer, "command: " ); 
 	//setCommandBuffer( now_phase );
 	setSwingCommand();
 	swing_time = getElaspedTime();
+	is_swing = 1;
       }else{
 	strcpy( buffer, "no" );
       }
