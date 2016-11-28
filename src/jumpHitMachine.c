@@ -256,6 +256,8 @@ void saveDat(void){
   fclose( fp_res );
   fclose( fp_bal );
 
+  printf( "save done: %s\n", filename_command );
+  printf( "save done: %s\n", filename_results );
   printf( "save done: %s\n", filename_ball );
 }
 
