@@ -43,7 +43,7 @@ char filename_ip_camera2[] = "../data/params/ip_camera2.dat";
 #define NUM_OF_CHANNELS 16
 #define NUM_ARM 13
 #define Arm_pressure 0.3
-#define TIME_END 5
+#define TIME_END 5000
 #define TIME_SWING 300
 
 double data_valves[NUM][NUM_OF_CHANNELS] = {};
@@ -531,8 +531,14 @@ int main(){
   // loop
   int now_phase = 0, old_phase = -1;
   int c1 = 0, c2 = 0, r = 0; // counter
-  int swing_time;
+  int swing_time = 100000;
   while (1){
+    // terminate
+    int now_time = getElaspedTime();
+    if ( now_time > TIME_END || now_time - swing_time > TIME_SWING ){
+      cout << "now: " << now_time << ", swing:" << swing_time << endl;
+    break;
+    }
     // predict
     int wait_time = 100;
     if ( c1 > 5 && c2 > 5){
@@ -595,11 +601,12 @@ int main(){
       //printf( "num: %05d, phase: %02d, time: %9.3f ms \n", r, now_phase, getElaspedTime() );
      
       // terminate
-      int now_time = getElaspedTime();
+      //int now_time = getElaspedTime();
       //if ( now_phase >= NUM_OF_PHASE )
-      if ( now_time > TIME_END || now_time - swing_time > TIME_SWING )
-	break;
-
+      //if ( now_time > TIME_END || now_time - swing_time > TIME_SWING ){
+      //cout << "now: " << now_time << ", swing:" << swing_time << endl;
+      //break;
+      // }
       // recieve, set state
       memset( buffer, 0, sizeof(buffer) );
       recv( robotz_socket, buffer, sizeof(buffer), 0);
