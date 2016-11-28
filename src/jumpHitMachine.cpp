@@ -293,6 +293,14 @@ void setSwingCommand(void){
   }
 }
 
+void setExhaustCommand(void){
+  char tmp[9];
+  for ( int j = 0; j < NUM_OF_CHANNELS; j++ ){
+    sprintf( tmp, "%4.3f ", 0.0 );
+    strcat( buffer, tmp );
+  }
+}
+
 void setSensorValue(int i){
   int j, k;
   char *tmp;
@@ -537,6 +545,8 @@ int main(){
     int now_time = getElaspedTime();
     if ( now_time > TIME_END || now_time - swing_time > TIME_SWING ){
       cout << "now: " << now_time << ", swing:" << swing_time << endl;
+      setExhaustCommand();
+      send( robotz_socket, buffer, NUM_BUFFER, 0 );
     break;
     }
     // predict
