@@ -1,10 +1,28 @@
+// std
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <string.h>
 #include <time.h>
+#include <sys/time.h>
+// socket
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+// ip
+#include <unistd.h>
+#include <sys/types.h>
+//#include <sys/ioctl.h>
+//#include <net/if.h>
+// c++
+#include <fstream>
+#include <string>
+#include <iostream>
+#include "Eigen/Core"
+#include "Eigen/Geometry"
+#include "Eigen/LU"
+
+using namespace std;
+using namespace Eigen;
 
 char filename_ip_robotz[]  = "../data/params/ip_robotz.dat";
 char filename_ip_camera1[] = "../data/params/ip_camera1.dat";
@@ -14,12 +32,19 @@ char filename_ip_camera2[] = "../data/params/ip_camera2.dat";
 //#define NUM_BUFFER 255
 #define NUM_BUFFER 1024
 #define XY 2
+#define NUM_PREDICT 100
+#define XYZ 3
+#define TXY 3
 
 // robotz
 #define NUM_OF_PHASE 10
 #define NUM_ADC_PORT 8
 #define NUM_ADC 3
 #define NUM_OF_CHANNELS 16
+#define NUM_ARM 13
+#define Arm_pressure 0.3
+#define TIME_END 5
+#define TIME_SWING 300
 
 double data_valves[NUM][NUM_OF_CHANNELS] = {};
 unsigned long data_sensors[NUM][NUM_ADC][NUM_ADC_PORT] = {};
@@ -27,7 +52,7 @@ unsigned long data_sensors[NUM][NUM_ADC][NUM_ADC_PORT] = {};
 int phase_time[NUM_OF_PHASE];
 double time_switch[NUM_OF_PHASE] = {};
 double value_valves[NUM_OF_CHANNELS] = {};
-double value_valves_phase[NUM_OF_PHASE][NUM_OF_CHANNELS] = {};
+//double value_valves_phase[NUM_OF_PHASE][NUM_OF_CHANNELS] = {};
 
 struct timeval ini_t, now_t;
 
@@ -45,9 +70,145 @@ double time0[NUM];
 double time1[NUM];
 double time2[NUM];
 
-void saveResults(void){
+//void saveResults(void){
+//}
+
+Vector2d coeffs1_x;
+Vector3d coeffs1_y, coeffs2_x, coeffs2_y;
+
+char coefficients_filename[] = "../data/params/regression_coefficients.dat";
+char dummy_filename[]        = "../data/20161128/17_11_38_ball.dat";
+char hitposition_filename[]  = "../data/params/hitposition.dat";
+char waittime_filename[]     = "../data/params/waittime.dat";
+
+VectorXd future_time1vec(NUM_PREDICT);
+
+void getVisionCoefficients(int NUM1,int NUM2){
+  // get vector
+  VectorXd t1_1(NUM1);
+  VectorXd t1_2(NUM1);
+  VectorXd b1_x(NUM1);
+  VectorXd b1_y(NUM1);
+  VectorXd t2_1(NUM2);
+  VectorXd t2_2(NUM2);
+  VectorXd b2_x(NUM2);
+  VectorXd b2_y(NUM2);
+  for ( int i = 0; i < NUM1; i++ ){
+    t1_1(i) = time1[i];
+    t1_2(i) = time1[i]* time1[i];
+    b1_x(i) = ball_positions1[i][0];
+    b1_y(i) = ball_positions1[i][1];
+  }
+  for ( int i = 0; i < NUM2; i++ ){
+    t2_1(i) = time2[i];
+    t2_2(i) = time2[i]* time2[i];
+    b2_x(i) = ball_positions2[i][0];
+    b2_y(i) = ball_positions2[i][1];
+  }
+  // coeffs
+  MatrixXd A1_1 = MatrixXd::Ones(NUM1,2);
+  MatrixXd A1_2 = MatrixXd::Ones(NUM1,3);
+  MatrixXd A2_2 = MatrixXd::Ones(NUM2,3);
+  A1_1.block(0,0,NUM1,1) = t1_1;
+  A1_2.block(0,0,NUM1,1) = t1_2;
+  A1_2.block(0,1,NUM1,1) = t1_1;
+  A2_2.block(0,0,NUM2,1) = t2_2;
+  A2_2.block(0,1,NUM2,1) = t2_1;
+
+  MatrixXd tmp1_x = A1_1.transpose() * A1_1;
+  MatrixXd tmp1_y = A1_2.transpose() * A1_2;
+  MatrixXd tmp2_x = A2_2.transpose() * A2_2;
+  MatrixXd tmp2_y = A2_2.transpose() * A2_2;
+  coeffs1_x = tmp1_x.inverse() * A1_1.transpose() * b1_x;
+  coeffs1_y = tmp1_y.inverse() * A1_2.transpose() * b1_y;
+  coeffs2_x = tmp2_x.inverse() * A2_2.transpose() * b2_x;
+  coeffs2_y = tmp2_y.inverse() * A2_2.transpose() * b2_y;
 }
 
+MatrixXd loadRegressionCoefficients(void){
+  int row = 4, col = 3;
+  ifstream File( coefficients_filename );
+  MatrixXd coeffs_reg_(row,col);
+
+  for ( int i = 0; i < row; i++ ){
+    for ( int j = 0; j < col; j++ ){
+      double tmp;
+      File >> tmp;
+      coeffs_reg_(i,j) = tmp;    
+    }
+  }
+  return coeffs_reg_;
+}
+
+Vector3d loadHitPosition(void){
+  ifstream File( hitposition_filename );
+  Vector3d hit_position_;
+  for ( int i = 0; i < XYZ; i++ ){
+      double tmp;
+      File >> tmp;
+      hit_position_(i) = tmp;
+  }
+  return hit_position_;
+}
+
+int loadOptimalWaitTime(void){
+  ifstream File( waittime_filename );
+  int wait_time_opt_;
+  File >> wait_time_opt_;
+  return wait_time_opt_;
+}
+
+MatrixXd predictBallTrajectory(int now_time_, MatrixXd coeffs_reg_){
+  //MatrixXd coeffs_reg = loadRegressionCoefficients();
+
+  //VectorXd future_time1vec(NUM_PREDICT);
+  VectorXd future_time2vec(NUM_PREDICT);
+  for ( int i = 0; i < NUM_PREDICT; i++ ){
+    int future_time = now_time_ + i;
+    future_time1vec(i) = future_time;
+    future_time2vec(i) = future_time* future_time;
+  }
+
+  MatrixXd future_time1mat = MatrixXd::Ones(NUM_PREDICT,2);
+  MatrixXd future_time2mat = MatrixXd::Ones(NUM_PREDICT,3);
+  future_time1mat.block(0,0,NUM_PREDICT,1) = future_time1vec;
+  future_time2mat.block(0,0,NUM_PREDICT,1) = future_time2vec;
+  future_time2mat.block(0,1,NUM_PREDICT,1) = future_time1vec;
+
+  VectorXd ball1_x_predict = future_time1mat* coeffs1_x;
+  VectorXd ball1_y_predict = future_time2mat* coeffs1_y;
+  VectorXd ball2_x_predict = future_time2mat* coeffs2_x;
+  VectorXd ball2_y_predict = future_time2mat* coeffs2_y;
+
+  MatrixXd ball_predict_mat( NUM_PREDICT, 4 ); 
+  ball_predict_mat.block(0,0,NUM_PREDICT,1) = ball1_x_predict;
+  ball_predict_mat.block(0,1,NUM_PREDICT,1) = ball1_y_predict;
+  ball_predict_mat.block(0,2,NUM_PREDICT,1) = ball2_x_predict;
+  ball_predict_mat.block(0,3,NUM_PREDICT,1) = ball2_y_predict;
+
+  MatrixXd ball_predict_world_ = ball_predict_mat* coeffs_reg_;
+  return ball_predict_world_;
+}
+
+int getHitTime(MatrixXd ball_predict_world_, Vector3d hit_position_ ){
+  //double hit_position[3] = { 199.89, 1404.8, 803.54 };
+  double distance_min = 1e+9;
+  double hit_time_ = 1e+9;
+
+  for ( int i = 0; i < NUM_PREDICT; i++ ){  
+    double distance = 0;
+    for ( int j = 0; j < XYZ; j++ ){
+      double tmp = ball_predict_world_(i,j) - hit_position_(j);
+      distance = distance + tmp*tmp;
+    }
+    if ( distance < distance_min ){
+      distance_min = distance;
+      hit_time_ = future_time1vec(i);
+    }
+  }
+  return hit_time_;
+}
+/*
 void loadCommand(void){
   FILE *fp_cmd;
   char str[NUM_BUFFER];
@@ -111,12 +272,23 @@ void loadCommand(void){
   
   fclose(fp_cmd);
 }
-
+*/
+/*
 void setCommandBuffer(int phase){
   int j;
   char tmp[9];
   for ( j = 0; j < NUM_OF_CHANNELS; j++ ){
     sprintf( tmp, "%4.3f ", value_valves_phase[phase][j] );
+    strcat( buffer, tmp );
+  }
+}
+*/
+
+void setSwingCommand(void){
+  value_valves[NUM_ARM] = Arm_pressure;
+  char tmp[9];
+  for ( int j = 0; j < NUM_OF_CHANNELS; j++ ){
+    sprintf( tmp, "%4.3f ", value_valves[j] );
     strcat( buffer, tmp );
   }
 }
@@ -137,7 +309,8 @@ void setSensorValue(int i){
 void setValveValue(int i, int phase){
   int j;
   for ( j = 0; j < NUM_OF_CHANNELS; j++ )
-    data_valves[i][j] = value_valves_phase[phase][j];
+    data_valves[i][j] = value_valves[j];
+    //data_valves[i][j] = value_valves_phase[phase][j];
 }
 
 int getPhaseNumber( double elasped_t ){
@@ -178,13 +351,14 @@ void getFileNames(void){
 void saveDat(void){
   //printf("save init: %s\n", filename_ball );
   int i,j,k;
-  FILE *fp_bal, *fp_res, *fp_cmd;
+  //FILE *fp_bal, *fp_res, *fp_cmd;
+  FILE *fp_bal, *fp_res;
   char str[NUM_BUFFER];
 
   // open
   fp_bal = fopen( filename_ball,    "w" );
   fp_res = fopen( filename_results, "w" );
-  fp_cmd = fopen( filename_command, "w" );
+  //fp_cmd = fopen( filename_command, "w" );
   if ( fp_bal == NULL ){
     printf( "File open error: %s\n", filename_ball );
     return;
@@ -193,10 +367,10 @@ void saveDat(void){
     printf( "File open error: %s\n", filename_results );
     return;
   }
-  if ( fp_cmd == NULL ){
-    printf( "File open error: %s\n", filename_command );
-    return;
-  }
+  //if ( fp_cmd == NULL ){
+  //printf( "File open error: %s\n", filename_command );
+  //return;
+  //}
 
   // ball
   for ( i = 0; i < NUM; i++ ){
@@ -240,6 +414,7 @@ void saveDat(void){
     sprintf( str, "\n");
     fputs(str, fp_res);
   }
+  /*
   // command
   for (i = 0; i < NUM_OF_PHASE; i++){
     sprintf( str, "%04d\t", phase_time[i] );
@@ -251,12 +426,13 @@ void saveDat(void){
     strcpy( str, "\n" );
     fputs( str, fp_cmd );
   }
+  */
   // close
-  fclose( fp_cmd );
+  //fclose( fp_cmd );
   fclose( fp_res );
   fclose( fp_bal );
 
-  printf( "save done: %s\n", filename_command );
+  //printf( "save done: %s\n", filename_command );
   printf( "save done: %s\n", filename_results );
   printf( "save done: %s\n", filename_ball );
 }
@@ -305,7 +481,10 @@ int main(){
 
   // filename
   getFileNames();
-  loadCommand();
+  //loadCommand();
+  Vector3d hit_position = loadHitPosition();
+  MatrixXd coeffs_reg   = loadRegressionCoefficients();
+  int wait_time_opt     = loadOptimalWaitTime();
 
   // get IP address
   char ip_robotz[NUM_BUFFER], ip_camera1[NUM_BUFFER], ip_camera2[NUM_BUFFER];
@@ -352,7 +531,18 @@ int main(){
   // loop
   int now_phase = 0, old_phase = -1;
   int c1 = 0, c2 = 0, r = 0; // counter
+  int swing_time;
   while (1){
+    // predict
+    int wait_time = 100;
+    if ( c1 > 5 && c2 > 5){
+      getVisionCoefficients(c1,c2);
+      int now_time = getElaspedTime();
+      MatrixXd ball_predict_world = predictBallTrajectory( now_time, coeffs_reg );
+      int hit_time = getHitTime( ball_predict_world, hit_position );
+      wait_time = hit_time - now_time;
+    }
+    // initialize
     memcpy( &fds, &readfds, sizeof(fd_set) ); // ititialize
     select( maxfd + 1, &fds, NULL, NULL, NULL ); // wait 
     // camera1
@@ -362,11 +552,17 @@ int main(){
       //send( camera1_socket, ".",    sizeof(buffer), 0 );
       send( camera1_socket, ".  ", 3, 0 );
       
-      time1[c1] = getElaspedTime();
-      //sscanf( buffer, "%d %d", &ball_positions1[c1][0], &ball_positions1[c1][1] );
-      sscanf( buffer, "%lf %lf", &ball_positions1[c1][0], &ball_positions1[c1][1] );
-      //printf( "camera1: %s\n", buffer );
-      c1++;
+      double tmp1, tmp2;
+      sscanf( buffer, "%lf %lf", &tmp1, &tmp2 );
+      if ( tmp1 > 0 ){
+	time1[c1] = getElaspedTime();
+	ball_positions1[c1][0] = tmp1;
+	ball_positions1[c1][1] = tmp2;
+	//sscanf( buffer, "%d %d", &ball_positions1[c1][0], &ball_positions1[c1][1] );
+	//sscanf( buffer, "%lf %lf", &ball_positions1[c1][0], &ball_positions1[c1][1] );
+	//printf( "camera1: %s\n", buffer );
+	c1++;
+      }
     }
     // camera2
     if ( FD_ISSET( camera2_socket, &fds )){
@@ -375,20 +571,33 @@ int main(){
       //send( camera2_socket, ".",    sizeof(buffer), 0 );
       send( camera2_socket, ".  ", 3, 0 );
 
-      time2[c2] = getElaspedTime();
+      double tmp1, tmp2;
+      sscanf( buffer, "%lf %lf", &tmp1, &tmp2 );
+      if ( tmp1 > 0 ){
+	time2[c2] = getElaspedTime();
+	ball_positions2[c2][0] = tmp1;
+	ball_positions2[c2][1] = tmp2;
+	//sscanf( buffer, "%d %d", &ball_positions1[c1][0], &ball_positions1[c1][1] );
+	//sscanf( buffer, "%lf %lf", &ball_positions1[c1][0], &ball_positions1[c1][1] );
+	//printf( "camera1: %s\n", buffer );
+	c2++;
+      }
+      //time2[c2] = getElaspedTime();
       //sscanf( buffer, "%d %d", &ball_positions2[c2][0], &ball_positions2[c2][1] );
-      sscanf( buffer, "%lf %lf", &ball_positions2[c2][0], &ball_positions2[c2][1] );
+      //sscanf( buffer, "%lf %lf", &ball_positions2[c2][0], &ball_positions2[c2][1] );
       //if ( strlen( buffer ) > 5 )
       //printf( "camera2: %s\n", buffer );
-      c2++;
+      //c2++;
     }
     // robotz    
     if ( FD_ISSET( robotz_socket, &fds )){      
-      now_phase = getPhaseNumber( getElaspedTime() );
+      //now_phase = getPhaseNumber( getElaspedTime() );
       //printf( "num: %05d, phase: %02d, time: %9.3f ms \n", r, now_phase, getElaspedTime() );
      
       // terminate
-      if ( now_phase >= NUM_OF_PHASE )
+      int now_time = getElaspedTime();
+      //if ( now_phase >= NUM_OF_PHASE )
+      if ( now_time > TIME_END || now_time - swing_time > TIME_SWING )
 	break;
 
       // recieve, set state
@@ -399,12 +608,15 @@ int main(){
 	setSensorValue(r);
       setValveValue(r,now_phase);
       time0[r] = getElaspedTime();
-      
+
       // send command
-      if ( now_phase != old_phase ){
+      //if ( now_phase != old_phase ){
+      if ( abs( wait_time - wait_time_opt ) < 5 ){
 	//printf("now phase: %d\n", now_phase );
 	strcpy( buffer, "command: " ); 
-	setCommandBuffer( now_phase );
+	//setCommandBuffer( now_phase );
+	setSwingCommand();
+	swing_time = getElaspedTime();
       }else{
 	strcpy( buffer, "no" );
       }
@@ -416,9 +628,6 @@ int main(){
     }
   }
   // terminate server
-  //send( robotz_socket,  "END", sizeof(buffer), 0 );
-  //send( camera1_socket, "END", sizeof(buffer), 0 );
-  //send( camera2_socket, "END", sizeof(buffer), 0 );
   send( robotz_socket,  "END", 3, 0 );
   send( camera1_socket, "END", 3, 0 );
   send( camera2_socket, "END", 3, 0 );
