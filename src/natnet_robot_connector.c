@@ -10,6 +10,7 @@
 #define PLUTO_PORT 12345
 #define LINUX_PORT 12345
 //#define END_SEC 3
+#define USEC_SOCKET_TIMEOUT 100 
 
 char filename_ip_windows[]  = "../data/params/ip_windows.dat";
 
@@ -24,7 +25,7 @@ void getIPAddress( char* filename, char* ip_address ){
   fclose(fp);
 }
 
-int connectSocket( char* ip_address, int port_num ){
+int makeClientSocket( char* ip_address, int port_num ){
   int clientSocket;
   struct sockaddr_in serverAddr;
   socklen_t addr_size;
@@ -43,8 +44,35 @@ int connectSocket( char* ip_address, int port_num ){
   return clientSocket;
 }
 
+int makeServerSocket( int port_num ){
+  int serverSocket;
+  struct sockaddr_in addr;
+  int yes = 1;
+  int ret;
+  struct timeval socket_timeout;
+
+  serverSocket         = socket( AF_INET, SOCK_STREAM, 0 );
+  addr.sin_family      = AF_INET;
+  addr.sin_port        = htons( port_num );
+  addr.sin_addr.s_addr = INADDR_ANY;
+
+  setsockopt( serverSocket,
+	     SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
+
+  socket_timeout.tv_sec  = 0;
+  socket_timeout.tv_usec = USEC_SOCKET_TIMEOUT;
+  
+  setsockopt( serverSocket, 
+	      SOL_SOCKET, SO_RCVTIMEO, (char*)&socket_timeout, sizeof( socket_timeout ) );
+
+  bind( serverSocket, (struct sockaddr *)&addr, sizeof(addr) );
+  listen( serverSocket, 5 );
+
+  return serverSocket;
+}
+
 int main(int argc, char* argv[]){
-  //int i;
+  int i;
   //double time_sec;
   //struct timeval s, e;
 
@@ -52,55 +80,39 @@ int main(int argc, char* argv[]){
   char ip_pluto[BUFFER_SIZE];
   getIPAddress( filename_ip_windows, ip_pluto );   
 
+  // sockets
+  int clientSocket = makeClientSocket( ip_pluto, PLUTO_PORT );
+  int serverSocket = makeServerSocket( LINUX_PORT );
+  int robotzSocket = -1;
+  char buffer[BUFFER_SIZE];
+  struct sockaddr_in client;
+  int len;
 
-
-  int clientSocket = connectSocket( ip_pluto, PLUTO_PORT );
-  //int clientSocket;
-  //char buffer[1024];
-  char buffer[99999];
-  
-  //char buffer_send[1];
-  //struct sockaddr_in serverAddr;
-  //socklen_t addr_size;
-
-  /*---- Create the socket. The three arguments are: ----*/
-  /* 1) Internet domain 2) Stream socket 3) Default protocol (TCP in this case) */
-  clientSocket = socket(PF_INET, SOCK_STREAM, 0);
-  
-  /*---- Configure settings of the server address struct ----*/
-  /* Address family = Internet */
-  //serverAddr.sin_family = AF_INET;
-  /* Set port number, using htons function to use proper byte order */
-  //serverAddr.sin_port = htons(WINDOWS_PORT);
-  /* Set IP address to localhost */
-  //serverAddr.sin_addr.s_addr = inet_addr("192.168.2.247");
-  //serverAddr.sin_addr.s_addr = inet_addr(ip_address);
-  /* Set all bits of the padding field to 0 */
-  //memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);  
-
-  /*---- Connect the socket to the server using the address struct ----*/
-  //addr_size = sizeof serverAddr;
-  //connect( clientSocket, (struct sockaddr *) &serverAddr, addr_size);
-  
-
-  //gettimeofday( &s, NULL );
-  while (1){
-    //sprintf( buffer_send, "%d", 1 );
-    //send( clientSocket, buffer_send, 1, 0 );
-
-    /*---- Read the message from the server into the buffer ----*/
-    //recv( clientSocket, buffer, 1024, 0 );
+  i = 0;
+  while (1) {
+    if ( robotzSocket == -1 ){
+      len = sizeof( client );
+      robotzSocket = accept( serverSocket, (struct sockaddr *)&client, &len );
+      i = 0;
+    }
+    //while (1){
+    //for ( i = 0; i < 10; i++ ){
     recv( clientSocket, buffer, BUFFER_SIZE, 0 );
     
-    /*---- Print the received message ----*/
-    printf("Data received: %s\n",buffer);
-
-    //gettimeofday( &e, NULL );
-    //printf("time = %lf\n", (e.tv_sec - s.tv_sec) + (e.tv_usec - s.tv_usec)*1.0E-6);
-    //time_sec = e.tv_sec - s.tv_sec;
-
-    //if( time_sec > END_SEC )
-    //break;
+    if ( robotzSocket > -1 ){
+      send( robotzSocket, buffer, BUFFER_SIZE, 0 );
+      i++;
+    }
+    //send( robotzSocket, "hello!", 6, 0 );
+    //printf("Data recieved: %s\n",buffer);
+    //}
+    if ( i > 100 ){ 
+      close( robotzSocket );
+      robotzSocket = -1;
+    }
   }
+
+  close( serverSocket );
+
   return 0;
 }
