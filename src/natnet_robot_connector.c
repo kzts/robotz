@@ -52,7 +52,7 @@ int main(int argc, char* argv[]){
   char ip_pluto[BUFFER_SIZE];
   getIPAddress( filename_ip_windows, ip_pluto );   
 
-  //char* ip_address = "192.168.2.246";
+
 
   int clientSocket = connectSocket( ip_pluto, PLUTO_PORT );
   //int clientSocket;
@@ -65,7 +65,7 @@ int main(int argc, char* argv[]){
 
   /*---- Create the socket. The three arguments are: ----*/
   /* 1) Internet domain 2) Stream socket 3) Default protocol (TCP in this case) */
-  //clientSocket = socket(PF_INET, SOCK_STREAM, 0);
+  clientSocket = socket(PF_INET, SOCK_STREAM, 0);
   
   /*---- Configure settings of the server address struct ----*/
   /* Address family = Internet */
