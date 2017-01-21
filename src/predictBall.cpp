@@ -46,9 +46,7 @@ int getFileLineNum( const char* filePath ){
   return i;
 }
 int loadBall( const char* filePath ){
-  int time_num = getFileLineNum( filePath );
-  cout << time_num << endl;
-  
+  int time_num = getFileLineNum( filePath );//cout << time_num << endl;
   // marker data
   FILE *fp;
   char buffer[BUFFER_NUM];
@@ -56,24 +54,13 @@ int loadBall( const char* filePath ){
 
   fp = fopen( filePath, "r");
   for ( int j = 0; j < time_num; j++ ){
-  //for ( int j = 0; j < 10; j++ ){
-
     fgets( buffer, BUFFER_NUM, fp );
-    //cout << buffer << endl;
-    
     tmp = strtok( buffer, " " ); 
-    //cout << tmp << " ";
-
     for ( int k = 1; k < MAX_MARKER_NUM* XYZ; k++ ){
       tmp = strtok( NULL, " " ); 
-      //cout << tmp << " ";
       marker_data[j][k] = atof( tmp );
     }
-
-    //cout << endl;
-    
   }
-
 }
 
 int main(){
