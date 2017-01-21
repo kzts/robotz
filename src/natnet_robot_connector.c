@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -6,10 +5,9 @@
 #include <unistd.h>
 
 #define BUFFER_SIZE 256
-//#define WINDOWS_PORT 12345
 #define PLUTO_PORT 12345
 #define LINUX_PORT 12345
-//#define END_SEC 3
+#define END_SEC 5
 #define USEC_SOCKET_TIMEOUT 100 
 
 char filename_ip_windows[]  = "../data/params/ip_windows.dat";
@@ -72,9 +70,9 @@ int makeServerSocket( int port_num ){
 }
 
 int main(int argc, char* argv[]){
-  int i;
-  //double time_sec;
-  //struct timeval s, e;
+  //int i;
+  double time_sec;
+  struct timeval s, e;
 
   // get IP address
   char ip_pluto[BUFFER_SIZE];
@@ -88,12 +86,15 @@ int main(int argc, char* argv[]){
   struct sockaddr_in client;
   int len;
 
-  i = 0;
+  //i = 0;
+  gettimeofday( &s, NULL );
+
   while (1) {
     if ( robotzSocket == -1 ){
       len = sizeof( client );
       robotzSocket = accept( serverSocket, (struct sockaddr *)&client, &len );
-      i = 0;
+      //i = 0;
+      gettimeofday( &s, NULL );      
     }
     //while (1){
     //for ( i = 0; i < 10; i++ ){
@@ -101,12 +102,14 @@ int main(int argc, char* argv[]){
     
     if ( robotzSocket > -1 ){
       send( robotzSocket, buffer, BUFFER_SIZE, 0 );
-      i++;
+      //i++;
+      gettimeofday( &e, NULL );
     }
     //send( robotzSocket, "hello!", 6, 0 );
     //printf("Data recieved: %s\n",buffer);
     //}
-    if ( i > 100 ){ 
+    //if ( i > 100 ){ 
+    if (( e.tv_sec - s.tv_sec ) + 1.0e-6*( e.tv_usec - s.tv_usec ) > END_SEC ){ 
       close( robotzSocket );
       robotzSocket = -1;
     }
