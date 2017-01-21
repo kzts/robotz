@@ -70,52 +70,43 @@ int makeServerSocket( int port_num ){
 }
 
 int main(int argc, char* argv[]){
-  //int i;
+  // time
   double time_sec;
   struct timeval s, e;
-
-  // get IP address
+  gettimeofday( &s, NULL );
+  gettimeofday( &e, NULL );
+  // get ip
   char ip_pluto[BUFFER_SIZE];
   getIPAddress( filename_ip_windows, ip_pluto );   
-
   // sockets
-  int clientSocket = makeClientSocket( ip_pluto, PLUTO_PORT );
-  int serverSocket = makeServerSocket( LINUX_PORT );
-  int robotzSocket = -1;
   char buffer[BUFFER_SIZE];
   struct sockaddr_in client;
   int len;
-
-  //i = 0;
-  gettimeofday( &s, NULL );
-
+  int clientSocket = makeClientSocket( ip_pluto, PLUTO_PORT );
+  int serverSocket = makeServerSocket( LINUX_PORT );
+  int robotzSocket = -1;
+  // connect to robot repeatedly
   while (1) {
+    // connect to a robot
     if ( robotzSocket == -1 ){
       len = sizeof( client );
       robotzSocket = accept( serverSocket, (struct sockaddr *)&client, &len );
-      //i = 0;
       gettimeofday( &s, NULL );      
     }
-    //while (1){
-    //for ( i = 0; i < 10; i++ ){
+    // recieve buffer from NatNet
     recv( clientSocket, buffer, BUFFER_SIZE, 0 );
-    
+    // send buffer to a robot
     if ( robotzSocket > -1 ){
       send( robotzSocket, buffer, BUFFER_SIZE, 0 );
-      //i++;
       gettimeofday( &e, NULL );
     }
-    //send( robotzSocket, "hello!", 6, 0 );
-    //printf("Data recieved: %s\n",buffer);
-    //}
-    //if ( i > 100 ){ 
+    // close connection to a robot
     if (( e.tv_sec - s.tv_sec ) + 1.0e-6*( e.tv_usec - s.tv_usec ) > END_SEC ){ 
       close( robotzSocket );
       robotzSocket = -1;
     }
   }
-
+  // close connection to NatNet
   close( serverSocket );
-
   return 0;
 }
