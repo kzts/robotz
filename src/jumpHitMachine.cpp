@@ -25,9 +25,10 @@
 using namespace std;
 using namespace Eigen;
 
-char filename_ip_robotz[]  = "../data/params/ip_robotz.dat";
-char filename_ip_camera1[] = "../data/params/ip_camera1.dat";
-char filename_ip_camera2[] = "../data/params/ip_camera2.dat";
+#define ROBOTZ_IP_FILE "../data/params/ip_robotz.dat"
+#define BALL_IP_FILE   "../data/params/ip_connect.dat"
+#define ROBOTZ_PORT 7891
+#define BALL_PORT   12345
 
 #define NUM 99999
 //#define NUM_BUFFER 255
@@ -47,6 +48,7 @@ char filename_ip_camera2[] = "../data/params/ip_camera2.dat";
 #define Arm_pressure 0.3
 #define TIME_END 5000
 #define TIME_SWING 300
+#define COMMAND_FILE "../data/robotz/command.dat"
 
 double data_valves[NUM][NUM_OF_CHANNELS] = {};
 unsigned long data_sensors[NUM][NUM_ADC][NUM_ADC_PORT] = {};
@@ -54,16 +56,15 @@ unsigned long data_sensors[NUM][NUM_ADC][NUM_ADC_PORT] = {};
 int phase_time[NUM_OF_PHASE];
 double time_switch[NUM_OF_PHASE] = {};
 double value_valves[NUM_OF_CHANNELS] = {};
-//double value_valves_phase[NUM_OF_PHASE][NUM_OF_CHANNELS] = {};
+double value_valves_phase[NUM_OF_PHASE][NUM_OF_CHANNELS] = {};
 
 struct timeval ini_t, now_t;
 
 char buffer[NUM_BUFFER];
 
-char   filename_command_original[NUM] = "../data/robotz/command.dat";
 char   filename_ball[NUM];
 char   filename_results[NUM];
-char   filename_command[NUM];
+//char   filename_command[NUM];
 //int    ball_positions1[NUM][XY];
 //int    ball_positions2[NUM][XY];
 double ball_positions1[NUM][XY];
@@ -210,7 +211,7 @@ int getHitTime(MatrixXd ball_predict_world_, Vector3d hit_position_ ){
   }
   return hit_time_;
 }
-/*
+
 void loadCommand(void){
   FILE *fp_cmd;
   char str[NUM_BUFFER];
@@ -223,10 +224,10 @@ void loadCommand(void){
   double val;
   double deb;
 
-  fp_cmd = fopen( filename_command_original, "r");
+  fp_cmd = fopen( COMMAND_FILE, "r");
 
   if (fp_cmd == NULL){
-    printf( "File open error: %s\n", filename_command_original );
+    printf( "File open error: %s\n", COMMAND_FILE );
     return;
   }
 
@@ -274,8 +275,7 @@ void loadCommand(void){
   
   fclose(fp_cmd);
 }
-*/
-/*
+
 void setCommandBuffer(int phase){
   int j;
   char tmp[9];
@@ -284,8 +284,8 @@ void setCommandBuffer(int phase){
     strcat( buffer, tmp );
   }
 }
-*/
 
+/*
 void setSwingCommand(void){
   value_valves[NUM_ARM] = Arm_pressure;
   memset( buffer, 0, sizeof(buffer) );
@@ -296,6 +296,7 @@ void setSwingCommand(void){
     strcat( buffer, tmp );
   }
 }
+*/
 
 void setExhaustCommand(void){
   memset( buffer, 0, sizeof(buffer) );
@@ -357,26 +358,28 @@ void getFileNames(void){
 	   year, month, day, hour, minute, second );
   sprintf( filename_results, "../data/%04d%02d%02d/%02d_%02d_%02d_results.dat", 
 	   year, month, day, hour, minute, second );
-  sprintf( filename_command, "../data/%04d%02d%02d/%02d_%02d_%02d_command.dat", 
-	   year, month, day, hour, minute, second );
-  //printf("save file: %s\n", filename_ball );
+  // sprintf( filename_command, "../data/%04d%02d%02d/%02d_%02d_%02d_command.dat", 
+  //year, month, day, hour, minute, second );
+  printf("ball file:  %s\n", filename_ball );
+  printf("robot file: %s\n", filename_results );
 }
 
 void saveDat(void){
   //printf("save init: %s\n", filename_ball );
   int i,j,k;
   //FILE *fp_bal, *fp_res, *fp_cmd;
-  FILE *fp_bal, *fp_res;
+  //FILE *fp_bal, *fp_res;
+  FILE *fp_res;
   char str[NUM_BUFFER];
 
   // open
-  fp_bal = fopen( filename_ball,    "w" );
+  //fp_bal = fopen( filename_ball,    "w" );
   fp_res = fopen( filename_results, "w" );
   //fp_cmd = fopen( filename_command, "w" );
-  if ( fp_bal == NULL ){
-    printf( "File open error: %s\n", filename_ball );
-    return;
-  }
+  //if ( fp_bal == NULL ){
+  //printf( "File open error: %s\n", filename_ball );
+  //return;
+  //}
   if ( fp_res == NULL ){
     printf( "File open error: %s\n", filename_results );
     return;
@@ -385,7 +388,7 @@ void saveDat(void){
   //printf( "File open error: %s\n", filename_command );
   //return;
   //}
-
+  /*
   // ball
   for ( i = 0; i < NUM; i++ ){
     // time 1
@@ -410,6 +413,7 @@ void saveDat(void){
     sprintf( str, "\n");
     fputs( str, fp_bal );
   }
+  */
   // sensor
   for (i = 0; i < NUM; i++){
     sprintf( str, "%8.3f\t", time0[i]);
@@ -444,11 +448,11 @@ void saveDat(void){
   // close
   //fclose( fp_cmd );
   fclose( fp_res );
-  fclose( fp_bal );
+  //fclose( fp_bal );
 
   //printf( "save done: %s\n", filename_command );
   printf( "save done: %s\n", filename_results );
-  printf( "save done: %s\n", filename_ball );
+  //printf( "save done: %s\n", filename_ball );
 }
 
 double getElaspedTime(void){
@@ -495,49 +499,55 @@ int main(){
 
   // filename
   getFileNames();
-  //loadCommand();
-  Vector3d hit_position = loadHitPosition();
-  MatrixXd coeffs_reg   = loadRegressionCoefficients();
-  int wait_time_opt     = loadOptimalWaitTime();
+  loadCommand();
+
+  //Vector3d hit_position = loadHitPosition();
+  //MatrixXd coeffs_reg   = loadRegressionCoefficients();
+  //int wait_time_opt     = loadOptimalWaitTime();
 
   // get IP address
-  char ip_robotz[NUM_BUFFER], ip_camera1[NUM_BUFFER], ip_camera2[NUM_BUFFER];
-  getIPAddress( filename_ip_robotz,  ip_robotz );   
-  getIPAddress( filename_ip_camera1, ip_camera1 );   
-  getIPAddress( filename_ip_camera2, ip_camera2 );   
-
-  printf( "ip address: %s (robotz), %s (camera1), %s (camera2)\n", ip_robotz, ip_camera1, ip_camera2 );
-
+  //char ip_robotz[NUM_BUFFER], ip_camera1[NUM_BUFFER], ip_camera2[NUM_BUFFER];
+  char robotz_ip[NUM_BUFFER], ball_ip[NUM_BUFFER];
+  getIPAddress( (char*) ROBOTZ_IP_FILE, robotz_ip );   
+  getIPAddress( (char*) BALL_IP_FILE,   ball_ip );   
+  //getIPAddress( filename_ip_camera1, ip_camera1 );   
+  //getIPAddress( filename_ip_camera2, ip_camera2 );   
+  printf( "ip address: %s (robotz), %s (ball)\n", robotz_ip, ball_ip );
+  
   // server
-  int port_num = 7891;
-  int robotz_socket  = connectSocket( ip_robotz,  port_num );
+  //int port_num = 7891;
+  //int robotz_socket  = connectSocket( ip_robotz,  port_num );
+  int robotz_socket  = connectSocket( robotz_ip, ROBOTZ_PORT );
+  int ball_socket    = connectSocket( ball_ip,   BALL_PORT );
+
+  /*
   //int robotz_socket  = 0;
-  int camera1_socket = connectSocket( ip_camera1, port_num );
-  int camera2_socket = connectSocket( ip_camera2, port_num );
+  //int camera1_socket = connectSocket( ip_camera1, port_num );
+  //int camera2_socket = connectSocket( ip_camera2, port_num );
 
   fd_set fds, readfds;
   int maxfd; // max value of file discripter for select 
 
   FD_ZERO(&readfds); // initialize fd_set
   FD_SET( robotz_socket,  &readfds ); // register 
-  FD_SET( camera1_socket, &readfds );
-  FD_SET( camera2_socket, &readfds );
+  //FD_SET( camera1_socket, &readfds );
+  //FD_SET( camera2_socket, &readfds );
 
   // maxfd 
   if ( robotz_socket > camera1_socket && robotz_socket > camera2_socket )
     maxfd = robotz_socket;
-  if ( camera1_socket > robotz_socket && camera1_socket > camera2_socket )
-    maxfd = camera1_socket;
-  if ( camera2_socket > robotz_socket && camera2_socket > camera1_socket )
-    maxfd = camera2_socket;
+  //if ( camera1_socket > robotz_socket && camera1_socket > camera2_socket )
+  //maxfd = camera1_socket;
+  //if ( camera2_socket > robotz_socket && camera2_socket > camera1_socket )
+  //maxfd = camera2_socket;
 
   // check ready
-  memset( buffer, 0, sizeof(buffer) );
-  recv( camera1_socket, buffer, 5, 0 );
-  printf( "camera1: %s\n", buffer );
-  memset( buffer, 0, sizeof(buffer) );
-  recv( camera2_socket, buffer, 5, 0 );
-  printf( "camera2: %s\n", buffer );
+  //memset( buffer, 0, sizeof(buffer) );
+  //recv( camera1_socket, buffer, 5, 0 );
+  //printf( "camera1: %s\n", buffer );
+  //memset( buffer, 0, sizeof(buffer) );
+  //recv( camera2_socket, buffer, 5, 0 );
+  //printf( "camera2: %s\n", buffer );
   memset( buffer, 0, sizeof(buffer) );
   recv( robotz_socket, buffer, 5, 0 );
   printf( "robotz: %s\n", buffer );
@@ -569,6 +579,7 @@ int main(){
     // initialize
     memcpy( &fds, &readfds, sizeof(fd_set) ); // ititialize
     select( maxfd + 1, &fds, NULL, NULL, NULL ); // wait 
+    
     // camera1
     if ( FD_ISSET( camera1_socket, &fds )){
       memset( buffer, 0, sizeof(buffer) );
@@ -613,6 +624,7 @@ int main(){
       //printf( "camera2: %s\n", buffer );
       //c2++;
     }
+    
     // robotz    
     if ( FD_ISSET( robotz_socket, &fds )){      
       //now_phase = getPhaseNumber( getElaspedTime() );
@@ -657,16 +669,17 @@ int main(){
   }
   // terminate server
   send( robotz_socket,  "END", 3, 0 );
-  send( camera1_socket, "END", 3, 0 );
-  send( camera2_socket, "END", 3, 0 );
+  //send( camera1_socket, "END", 3, 0 );
+  //send( camera2_socket, "END", 3, 0 );
 
   saveDat();
-
+  */
   // close
   close( robotz_socket );
-  close( camera1_socket );
-  close( camera2_socket );
-
+  close( ball_socket );
+  //close( camera1_socket );
+  //close( camera2_socket );
+  
   return 0;
 }
 
