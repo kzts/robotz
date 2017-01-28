@@ -152,7 +152,15 @@ int dots_num    = 0;
 int command_num = 0;
 
 void changeJumpTime( int hit_jump_time ){
-  time_switch[JUMP_PHASE2] = hit_jump_time;
+  phase_time[JUMP_PHASE2] = hit_jump_time;
+
+  for (int i = 0; i < NUM_OF_PHASE; i++){
+    int sum_time = 0;
+    for (int j = 0; j <= i; j++)
+      sum_time += phase_time[j];
+    time_switch[i] = sum_time;
+  }
+
   cout << "switch time change" << endl;
 }
 
@@ -200,7 +208,9 @@ double detectTime(void){
 
     if ( ball_hit_time < ( robotz_hit_time + ( 1.0/ NATNET_FPS )* MS_TO_SEC )){
     //if ( ball_hit_time < ( robotz_hit_time + TIME_TICK* MS_TO_SEC )){
+      cout << "before: " << phase_time[JUMP_PHASE2] << endl;
       changeJumpTime( hit_jump_time );
+      cout << "after:  " << phase_time[JUMP_PHASE2] << endl;
     }
   }
 }
