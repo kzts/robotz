@@ -1,4 +1,3 @@
-
 // std
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +17,7 @@
 #include <fstream>
 #include <string>
 #include <iostream>
+#include <vector>
 #include "Eigen/Core"
 #include "Eigen/Geometry"
 #include "Eigen/LU"
@@ -29,8 +29,15 @@ using namespace Eigen;
 #define BALL_IP_FILE   "../data/params/ip_connect.dat"
 #define ROBOTZ_PORT 7891
 #define BALL_PORT   12345
+#define MAX_MARKER_NUM 20
+#define DISTANCE_LIMIT 200e-3
+#define MAX_DISTANCE 10
+#define ENOUGH_SAMPLE 10
+#define MS_TO_SEC 1.0e-3
+#define SEC_TO_MS 1.0e+3
+#define HIT_DISTANCE 20e-3
 
-#define NUM 99999
+#define NUM 9999
 //#define NUM_BUFFER 255
 #define NUM_BUFFER 1024
 #define XY 2
@@ -38,6 +45,9 @@ using namespace Eigen;
 #define NUM_PREDICT 300
 #define XYZ 3
 #define TXY 3
+#define X 0
+#define Y 1
+#define Z 2
 
 // robotz
 #define NUM_OF_PHASE 10
@@ -49,6 +59,25 @@ using namespace Eigen;
 #define TIME_END 5000
 #define TIME_SWING 300
 #define COMMAND_FILE "../data/robotz/command.dat"
+#define HAND_FILE    "../data/20170128/hand.dat"
+#define HAND_NUM 99999
+#define FUTURE_TIME_NUM 400
+//#define FUTURE_TIME_NUM 100
+#define TIME_TICK 3e-3
+
+#define R_KNEE_COL 2
+#define L_KNEE_COL 7
+#define KNEE_MEAN_PRESSURE 0.4
+#define JUMP_PHASE1 1
+#define JUMP_PHASE2 2
+
+double hand_positions[HAND_NUM][XYZ] = {};
+int hand_time[HAND_NUM] = {};
+double knee_command[HAND_NUM] = {};
+int jump_time[HAND_NUM] = {};
+
+double marker_position[MAX_MARKER_NUM] = {};
+double old_position[XYZ] = {};
 
 double data_valves[NUM][NUM_OF_CHANNELS] = {};
 unsigned long data_sensors[NUM][NUM_ADC][NUM_ADC_PORT] = {};
@@ -58,7 +87,7 @@ double time_switch[NUM_OF_PHASE] = {};
 double value_valves[NUM_OF_CHANNELS] = {};
 double value_valves_phase[NUM_OF_PHASE][NUM_OF_CHANNELS] = {};
 
-struct timeval ini_t, now_t;
+struct timeval ini_t, now_t, robotz_ini_t;
 
 char buffer[NUM_BUFFER];
 
@@ -73,6 +102,12 @@ double time0[NUM];
 double time1[NUM];
 double time2[NUM];
 
+double robotz_time[NUM];
+double ball_time[NUM];
+double ball_positions[NUM][XYZ];
+
+int motive_frame = 0;
+
 //void saveResults(void){
 //}
 
@@ -84,8 +119,134 @@ char dummy_filename[]        = "../data/20161128/17_11_38_ball.dat";
 char hitposition_filename[]  = "../data/params/hitposition.dat";
 char waittime_filename[]     = "../data/params/waittime.dat";
 
-VectorXd future_time1vec(NUM_PREDICT);
+Vector2d coeffs_x, coeffs_z;
+Vector3d coeffs_y;
 
+double future_ball_positions[FUTURE_TIME_NUM][XYZ] = {};
+
+double min_hand_position_x = MAX_DISTANCE;
+
+int ball_hit_time = 0;
+int robotz_hit_time = 0;
+double hit_knee_command = 0.0;
+
+int is_robotz_move = 0;
+int is_ball_found = 0;
+
+//VectorXd future_time1vec(NUM_PREDICT);
+
+void changeKneePressure( double R_knee_command ){
+  value_valves_phase[JUMP_PHASE1][R_KNEE_COL] = R_knee_command;
+  value_valves_phase[JUMP_PHASE2][R_KNEE_COL] = R_knee_command;
+  value_valves_phase[JUMP_PHASE1][L_KNEE_COL] = 2.0* KNEE_MEAN_PRESSURE - R_knee_command;
+  value_valves_phase[JUMP_PHASE2][L_KNEE_COL] = 2.0* KNEE_MEAN_PRESSURE - R_knee_command;
+}
+
+double getElaspedTime(void){
+  double now_time_;
+  gettimeofday( &now_t, NULL );
+  now_time_ =
+    + 1000.0*( now_t.tv_sec - ini_t.tv_sec )
+    + 0.001*( now_t.tv_usec - ini_t.tv_usec );
+  return now_time_;
+}
+
+double getRobotzTime(void){
+  double now_time_;
+  gettimeofday( &now_t, NULL );
+  now_time_ =
+    + 1000.0*( now_t.tv_sec - robotz_ini_t.tv_sec )
+    + 0.001*( now_t.tv_usec - robotz_ini_t.tv_usec );
+  return now_time_;
+}
+
+
+
+double detectHit( int hand_num ){
+  int hand_index = -1;
+  int ball_index = -1;
+  double min_distance = MAX_DISTANCE;
+
+
+  for ( int t = 0; t < FUTURE_TIME_NUM; t++ ){
+    if ( future_ball_positions[t][0] > min_hand_position_x ){
+      for ( int h = 0; h < hand_num; h++ ){
+	double sum = 0.0;
+	for ( int n = 0; n < XYZ; n++ ){
+	  double diff = future_ball_positions[t][n] - hand_positions[h][n];
+	  sum += diff* diff;
+	}
+	double distance = sqrt( sum );
+	if ( distance < min_distance ){
+	  hand_index   = h;
+	  ball_index   = t;
+	  min_distance = distance;
+	  
+	  if ( min_distance < HIT_DISTANCE )
+	    break;
+	}
+      }
+    }
+  }
+  // cout << time_index << " " << hand_index << " " << min_distance << endl;
+  if ( min_distance < HIT_DISTANCE ){
+    ball_hit_time     = ball_index* TIME_TICK* SEC_TO_MS;
+    robotz_hit_time   = hand_time[ hand_index ];
+    hit_knee_command  = knee_command[ hand_index ];
+  
+    cout << ball_index << " " << hand_index << " " << min_distance << " " 
+	 << ball_hit_time << " " << robotz_hit_time << " " << hit_knee_command << endl;
+
+    if ( ball_hit_time < ( robotz_hit_time + TIME_TICK )){
+      is_robotz_move = 1;
+      gettimeofday( &robotz_ini_t, NULL );
+      changeKneePressure( hit_knee_command );
+    }
+  }
+}
+
+void predictBall(void){
+  for ( int t = 0; t < FUTURE_TIME_NUM; t++ ){
+    double future_time_sec = MS_TO_SEC* getElaspedTime() + t* TIME_TICK;
+    future_ball_positions[t][X] = coeffs_x[0]* future_time_sec + coeffs_x[1];
+    future_ball_positions[t][Z] = coeffs_z[0]* future_time_sec + coeffs_z[1];
+    future_ball_positions[t][Y] = 
+      coeffs_y[0]* future_time_sec* future_time_sec + coeffs_y[1]* future_time_sec + coeffs_y[2];
+  }
+}
+
+void getBallCoeffs( int time_num ){
+  // time, state vector
+  VectorXd t_vec_1( time_num );
+  VectorXd t_vec_2( time_num );
+  VectorXd b_x( time_num );
+  VectorXd b_y( time_num );
+  VectorXd b_z( time_num );
+  for ( int i = 0; i < time_num; i++ ){
+    //t_vec_1(i) = ball_time[i];
+    t_vec_1(i) = MS_TO_SEC* ball_time[i];
+    //t_vec_2(i) = ball_time[i]* ball_time[i];
+    t_vec_2(i) = MS_TO_SEC* ball_time[i]* MS_TO_SEC* ball_time[i];
+
+    b_x(i) = ball_positions[i][X];
+    b_y(i) = ball_positions[i][Y];
+    b_z(i) = ball_positions[i][Z];
+  }
+  // time matrix
+  MatrixXd t_mat_1 = MatrixXd::Ones( time_num, 1 + 1 );
+  MatrixXd t_mat_2 = MatrixXd::Ones( time_num, 2 + 1 );
+  t_mat_1.block( 0, 0, time_num, 1 ) = t_vec_1;
+  t_mat_2.block( 0, 0, time_num, 1 ) = t_vec_2;
+  t_mat_2.block( 0, 1, time_num, 1 ) = t_vec_1;
+  // coeffs
+  MatrixXd tmp_1 = t_mat_1.transpose() * t_mat_1;
+  MatrixXd tmp_2 = t_mat_2.transpose() * t_mat_2;
+  coeffs_x = tmp_1.inverse() * t_mat_1.transpose() * b_x;
+  coeffs_y = tmp_2.inverse() * t_mat_2.transpose() * b_y;
+  coeffs_z = tmp_1.inverse() * t_mat_1.transpose() * b_z;
+} 
+
+/*
 void getVisionCoefficients(int NUM1,int NUM2){
   // get vector
   VectorXd t1_1(NUM1);
@@ -160,7 +321,10 @@ int loadOptimalWaitTime(void){
   File >> wait_time_opt_;
   return wait_time_opt_;
 }
+*/
 
+
+/*
 MatrixXd predictBallTrajectory(int now_time_, MatrixXd coeffs_reg_){
   //MatrixXd coeffs_reg = loadRegressionCoefficients();
 
@@ -210,6 +374,42 @@ int getHitTime(MatrixXd ball_predict_world_, Vector3d hit_position_ ){
     }
   }
   return hit_time_;
+}
+*/
+
+int loadHandDataFile(void){
+  FILE *fp;
+  char str[NUM_BUFFER];
+  int i = 1;
+  char *tmp;
+
+  fp = fopen( HAND_FILE, "r" );
+
+  if (fp == NULL){
+    printf( "File open error: %s\n", HAND_FILE );
+    return -1;
+  }
+
+  while ( fgets( str, NUM_BUFFER, fp ) != NULL ){
+    tmp = strtok( str,  " " ); hand_positions[i][0] = atof( tmp ); //printf( "%s ", tmp );
+    tmp = strtok( NULL, " " ); hand_positions[i][1] = atof( tmp ); //printf( "%s ", tmp );
+    tmp = strtok( NULL, " " ); hand_positions[i][2] = atof( tmp ); //printf( "%s ", tmp );
+    tmp = strtok( NULL, " " ); hand_time[i]         = atoi( tmp ); //printf( "%s ", tmp );
+    tmp = strtok( NULL, " " ); knee_command[i]      = atof( tmp ); //printf( "%s ", tmp );
+    tmp = strtok( NULL, " " ); jump_time[i]         = atoi( tmp ); //printf( "%s ", tmp );
+    //printf( "%d %lf %lf %lf\n", 
+    //	    ball_time[i], ball_position[i][0], ball_position[i][1], ball_position[i][2] );
+    i++;
+  }
+  
+  for ( int k = 0; k < ( i - 1 ); k++ )
+    if ( hand_positions[k][X] < min_hand_position_x )
+      min_hand_position_x = hand_positions[k][X];
+
+  fclose( fp );
+
+  int j = i - 1;
+  return j;
 }
 
 void loadCommand(void){
@@ -455,13 +655,65 @@ void saveDat(void){
   //printf( "save done: %s\n", filename_ball );
 }
 
-double getElaspedTime(void){
-  double now_time_;
-  gettimeofday( &now_t, NULL );
-  now_time_ =
-    + 1000.0*( now_t.tv_sec - ini_t.tv_sec )
-    + 0.001*( now_t.tv_usec - ini_t.tv_usec );
-  return now_time_;
+int setBallPosition( int i ){
+  double diff;
+  int near_idx = 0;
+  double distance_min = MAX_DISTANCE;
+  int is_found = 0;
+
+  for ( int j = 0; j < MAX_MARKER_NUM; j++ ){
+    if ( marker_position[ XYZ* j ] != 0.0 ){
+      if ( marker_position[ XYZ* j + 0 ] != old_position[0] ||
+         marker_position[ XYZ* j + 1 ] != old_position[1] ||
+         marker_position[ XYZ* j + 2 ] != old_position[2] ){
+	double sum = 0;
+	for ( int n = 0; n < XYZ; n++ ){
+	  diff = old_position[n] - marker_position[ XYZ*j + n ];
+	  sum += diff*diff;
+	}
+	double distance = sqrt(sum);
+	if ( distance < distance_min ){
+	  near_idx     = j;
+	  distance_min = distance;
+	}
+      }
+    }
+  }
+  //cout << distance_min << " " << old_position[0] << endl;
+  //if ( distance_min < DISTANCE_LIMIT ){
+  if ( distance_min < DISTANCE_LIMIT && old_position[0] != marker_position[ XYZ* near_idx ] ){
+    //printf( "%d %lf %lf %lf\n", i, old_position[0], old_position[1], old_position[2] );
+    //cout << near_idx << " " << distance_min << " " << old_position[0] << endl;
+    is_found = 1;
+    ball_time[i] = getElaspedTime();  
+    
+    for ( int n = 0; n < XYZ; n++ ){
+      old_position[n]      = marker_position[ XYZ* near_idx + n ];
+      ball_positions[i][n] = marker_position[ XYZ* near_idx + n ];
+    }
+
+    //if ( marker_position[0] != 0 ){
+    //for ( int m = 0; m < MAX_MARKER_NUM; m++ )
+    //	cout << marker_position[m]<< " ";
+    //cout << endl;
+    //}
+  }
+  return is_found;
+}
+
+void findBall(void){
+  for ( int j = 0; j < MAX_MARKER_NUM; j++ ){
+    if ( marker_position[ XYZ* j ] != 0 ){
+      if ( marker_position[ XYZ* j ] < 0 ){
+	// find ball
+	is_ball_found     = 1;
+	for ( int n = 0; n < XYZ; n++ )
+	  old_position[n]     = marker_position[ XYZ* j + n ];
+	cout << "ball is found." << endl;
+	break;
+      }
+    }
+  }
 }
 
 int connectSocket( char* ip_address, int port_num ){
@@ -494,169 +746,186 @@ void getIPAddress( char* filename, char* ip_address ){
   fclose(fp);
 }
 
+void setMarkerPosition(void){
+  char* tmp;
+  int i = 0;  
+  tmp = strtok( buffer, " " ); 
+  while( tmp!= NULL ){
+    tmp = strtok( NULL, " " ); 
+    if ( tmp!= NULL ){
+      marker_position[i] = atof( tmp );
+      i++;
+    }
+  }
+}
+
 int main(){
-  gettimeofday( &ini_t, NULL );
+  //double (*future_ball_positions_list);
+  //future_ball_positions_list = malloc( sizeof( double )* FUTURE_TIME_NUM * NUM * XYZ );
+
+
+  //vector< vector<double> > future_ball_positions_list;
+  //future_ball_positions_list.resize( FUTURE_TIME_NUM* NUM* XYZ );
+
+  //for ( int f = 0; f < FUTURE_TIME_NUM; f++ )
+  //for ( int b = 0; b < NUM; b++ )
+  //for ( int n = 0; n < XYZ; n++ )
+  //future_ball_positions_list[ f*XYZ*NUM + XYZ*b + n ] = 0.0;
+	//future_ball_positions_list[f][ XYZ*b + n ] = 0;
+
+  //double future_ball_positions_list[500*3*1000] = {};
+  ////double future_ball_positions_list[FUTURE_TIME_NUM*NUM*XYZ] = {};
+  //double future_ball_positions_list[FUTURE_TIME_NUM][NUM] = {};
+  //double future_ball_positions_list[FUTURE_TIME_NUM][NUM*XYZ] = {};
+  // double future_ball_positions_list[00][3000] = {};
+  //cout << "a" << endl;
+  //gettimeofday( &ini_t, NULL );
 
   // filename
   getFileNames();
   loadCommand();
+  int hand_num = loadHandDataFile();
+
+  //for ( int i = 0; i < hand_num; i++ )
+  //cout << i << " " << hand_positions[i][0] << " " << hand_positions[i][1] << " " << hand_positions[i][2] << endl;
 
   //Vector3d hit_position = loadHitPosition();
   //MatrixXd coeffs_reg   = loadRegressionCoefficients();
   //int wait_time_opt     = loadOptimalWaitTime();
 
   // get IP address
-  //char ip_robotz[NUM_BUFFER], ip_camera1[NUM_BUFFER], ip_camera2[NUM_BUFFER];
   char robotz_ip[NUM_BUFFER], ball_ip[NUM_BUFFER];
   getIPAddress( (char*) ROBOTZ_IP_FILE, robotz_ip );   
   getIPAddress( (char*) BALL_IP_FILE,   ball_ip );   
-  //getIPAddress( filename_ip_camera1, ip_camera1 );   
-  //getIPAddress( filename_ip_camera2, ip_camera2 );   
   printf( "ip address: %s (robotz), %s (ball)\n", robotz_ip, ball_ip );
   
   // server
-  //int port_num = 7891;
-  //int robotz_socket  = connectSocket( ip_robotz,  port_num );
   int robotz_socket  = connectSocket( robotz_ip, ROBOTZ_PORT );
   int ball_socket    = connectSocket( ball_ip,   BALL_PORT );
 
-  /*
-  //int robotz_socket  = 0;
-  //int camera1_socket = connectSocket( ip_camera1, port_num );
-  //int camera2_socket = connectSocket( ip_camera2, port_num );
-
+  // fd
   fd_set fds, readfds;
   int maxfd; // max value of file discripter for select 
-
-  FD_ZERO(&readfds); // initialize fd_set
-  FD_SET( robotz_socket,  &readfds ); // register 
-  //FD_SET( camera1_socket, &readfds );
-  //FD_SET( camera2_socket, &readfds );
-
-  // maxfd 
-  if ( robotz_socket > camera1_socket && robotz_socket > camera2_socket )
+  FD_ZERO( &readfds ); // initialize fd_set
+  FD_SET( robotz_socket, &readfds ); // register 
+  FD_SET( ball_socket,   &readfds );
+  if ( robotz_socket > ball_socket )
     maxfd = robotz_socket;
-  //if ( camera1_socket > robotz_socket && camera1_socket > camera2_socket )
-  //maxfd = camera1_socket;
-  //if ( camera2_socket > robotz_socket && camera2_socket > camera1_socket )
-  //maxfd = camera2_socket;
+  else
+    maxfd = ball_socket;
 
   // check ready
-  //memset( buffer, 0, sizeof(buffer) );
-  //recv( camera1_socket, buffer, 5, 0 );
-  //printf( "camera1: %s\n", buffer );
-  //memset( buffer, 0, sizeof(buffer) );
-  //recv( camera2_socket, buffer, 5, 0 );
-  //printf( "camera2: %s\n", buffer );
-  memset( buffer, 0, sizeof(buffer) );
-  recv( robotz_socket, buffer, 5, 0 );
-  printf( "robotz: %s\n", buffer );
+  memset( buffer, 0, sizeof(buffer) ); recv( robotz_socket, buffer, sizeof("ready"), 0 ); printf( "robotz server: %s\n", buffer );
+  memset( buffer, 0, sizeof(buffer) ); recv( ball_socket,   buffer, sizeof("ready"), 0 ); printf( "ball server:   %s\n", buffer );
 
   // loop
   int now_phase = 0, old_phase = -1;
-  int c1 = 0, c2 = 0, r = 0; // counter
+  int b = 0, r = 0; // counter
   int swing_time = 100000;
   int is_swing = 0;
+  
+  gettimeofday( &ini_t, NULL );
   while (1){
-    // terminate
-    int now_time = getElaspedTime();
-    if ( now_time > TIME_END || now_time - swing_time > TIME_SWING ){
-      cout << "now: " << now_time << ", swing:" << swing_time << endl;
-      setExhaustCommand();
-      send( robotz_socket, buffer, NUM_BUFFER, 0 );
-    break;
+    //// terminate
+    //int now_time = getElaspedTime();
+    //if ( now_time > TIME_END || now_time - swing_time > TIME_SWING ){
+    //cout << "now: " << now_time << ", swing:" << swing_time << endl;
+    //setExhaustCommand();
+    //send( robotz_socket, buffer, NUM_BUFFER, 0 );
+    //break;
+    //}
+    //// predict
+    if ( b > ENOUGH_SAMPLE ){
+      getBallCoeffs(b); // cout << "get coeffs." << endl;      
+      //cout << coeffs_x[0] << " " << coeffs_x[1] << " " << coeffs_y[0] << " " << coeffs_y[1] << " " << coeffs_y[2] << " " << coeffs_z[0] << " " << coeffs_z[1] << endl;
+      predictBall(); // cout << "predict ball." << endl;
+
+      if ( is_robotz_move == 0 )
+	detectHit( hand_num ); // cout << "detect hit." << endl;
+	
+      /*
+      cout << "in list ";
+      for ( int n = 0; n < XYZ; n++ )
+	for ( int f = 0; f < FUTURE_TIME_NUM; f++ )
+	  future_ball_positions_list[ FUTURE_TIME_NUM* XYZ* b +  FUTURE_TIME_NUM* n + f ] = 
+	    future_ball_positions[f][n];
+	  //future_ball_positions_list[f][ XYZ*b + n ] = future_ball_positions[f][n];
+      cout << "in list end" << endl;
+      */
     }
-    // predict
-    int wait_time = 1000;
-    if ( c1 > 5 && c2 > 5){
-      getVisionCoefficients(c1,c2);
-      int now_time = getElaspedTime();
-      MatrixXd ball_predict_world = predictBallTrajectory( now_time, coeffs_reg );
-      int hit_time = getHitTime( ball_predict_world, hit_position );
-      wait_time = hit_time - now_time;
-      cout << "wait: " << wait_time << endl;
-    }
+    //int wait_time = 1000;
+    //if ( c1 > 5 && c2 > 5){
+    //getVisionCoefficients(c1,c2);
+    //int now_time = getElaspedTime();
+    //MatrixXd ball_predict_world = predictBallTrajectory( now_time, coeffs_reg );
+    //int hit_time = getHitTime( ball_predict_world, hit_position );
+    //wait_time = hit_time - now_time;
+    //cout << "wait: " << wait_time << endl;
+    //}
     // initialize
     memcpy( &fds, &readfds, sizeof(fd_set) ); // ititialize
     select( maxfd + 1, &fds, NULL, NULL, NULL ); // wait 
-    
-    // camera1
-    if ( FD_ISSET( camera1_socket, &fds )){
-      memset( buffer, 0, sizeof(buffer) );
-      recv( camera1_socket, buffer, sizeof(buffer), 0 );
-      //send( camera1_socket, ".",    sizeof(buffer), 0 );
-      send( camera1_socket, ".  ", 3, 0 );
-      
-      double tmp1, tmp2;
-      sscanf( buffer, "%lf %lf", &tmp1, &tmp2 );
-      if ( tmp1 > 0 ){
-	time1[c1] = getElaspedTime();
-	ball_positions1[c1][0] = tmp1;
-	ball_positions1[c1][1] = tmp2;
-	//sscanf( buffer, "%d %d", &ball_positions1[c1][0], &ball_positions1[c1][1] );
-	//sscanf( buffer, "%lf %lf", &ball_positions1[c1][0], &ball_positions1[c1][1] );
-	//printf( "camera1: %s\n", buffer );
-	c1++;
-      }
-    }
-    // camera2
-    if ( FD_ISSET( camera2_socket, &fds )){
-      memset( buffer, 0, sizeof(buffer));
-      recv( camera2_socket, buffer, sizeof(buffer), 0 );
-      //send( camera2_socket, ".",    sizeof(buffer), 0 );
-      send( camera2_socket, ".  ", 3, 0 );
+        
+    // ball
+    if ( FD_ISSET( ball_socket, &fds )){
+      memset( buffer, 0, sizeof(buffer) ); 
+      recv( ball_socket, buffer, sizeof(buffer), 0 );
 
-      double tmp1, tmp2;
-      sscanf( buffer, "%lf %lf", &tmp1, &tmp2 );
-      if ( tmp1 > 0 ){
-	time2[c2] = getElaspedTime();
-	ball_positions2[c2][0] = tmp1;
-	ball_positions2[c2][1] = tmp2;
-	//sscanf( buffer, "%d %d", &ball_positions1[c1][0], &ball_positions1[c1][1] );
-	//sscanf( buffer, "%lf %lf", &ball_positions1[c1][0], &ball_positions1[c1][1] );
-	//printf( "camera1: %s\n", buffer );
-	c2++;
+      for ( int i = 0; i < MAX_MARKER_NUM; i++ )
+	marker_position[i] = 0;
+
+      setMarkerPosition();
+
+      memset( buffer, 0, sizeof(buffer) ); 
+      send( ball_socket, buffer, sizeof(buffer), 0 );
+      
+      //if ( marker_position[0] != 0 ){
+      //for ( int i = 0; i < MAX_MARKER_NUM; i++ )
+      //  cout << marker_position[i]<< " ";
+      //cout << endl;
+      //}
+
+      if ( is_ball_found > 0 ){
+	b += setBallPosition(b);
+	//setBallPosition(b);
+	//cout << ball_positions[b-1][0] << " " << ball_positions[b-1][1] << " " << ball_positions[b-1][2] << endl;
+	//cout << old_position[0] << " " << old_position[1] << " " << old_position[2] << endl;
+	//b++;
+      }else{
+	findBall();
       }
-      //time2[c2] = getElaspedTime();
-      //sscanf( buffer, "%d %d", &ball_positions2[c2][0], &ball_positions2[c2][1] );
-      //sscanf( buffer, "%lf %lf", &ball_positions2[c2][0], &ball_positions2[c2][1] );
-      //if ( strlen( buffer ) > 5 )
-      //printf( "camera2: %s\n", buffer );
-      //c2++;
+
+      //if ( abs( ball_positions[b][0] ) > 0 )
+      //cout << ball_positions[b][0] << " " << ball_positions[b][1] << " " << ball_positions[b][2] << endl;
     }
     
     // robotz    
-    if ( FD_ISSET( robotz_socket, &fds )){      
-      //now_phase = getPhaseNumber( getElaspedTime() );
+    if ( FD_ISSET( robotz_socket, &fds )){
+      if ( is_robotz_move )     
+	now_phase = getPhaseNumber( getRobotzTime() );
       //printf( "num: %05d, phase: %02d, time: %9.3f ms \n", r, now_phase, getElaspedTime() );
      
       // terminate
       //int now_time = getElaspedTime();
-      //if ( now_phase >= NUM_OF_PHASE )
+      if ( now_phase >= NUM_OF_PHASE )
       //if ( now_time > TIME_END || now_time - swing_time > TIME_SWING ){
       //cout << "now: " << now_time << ", swing:" << swing_time << endl;
-      //break;
+	break;
       // }
+
       // recieve, set state
       memset( buffer, 0, sizeof(buffer) );
-      recv( robotz_socket, buffer, sizeof(buffer), 0);
-      //printf( "robotz: %s\n", buffer );
+      recv( robotz_socket, buffer, sizeof(buffer), 0); //printf( "robotz: %s\n", buffer );
       if ( strlen( buffer ) > strlen( "sensor: " ))
 	setSensorValue(r);
-      setValveValue(r,now_phase);
-      time0[r] = getElaspedTime();
+      setValveValue( r, now_phase );
+      robotz_time[r] = getElaspedTime();
 
       // send command
-      //if ( now_phase != old_phase ){
-      //if ( abs( wait_time - wait_time_opt ) < 5 ){
-      //if ( wait_time < wait_time_opt + 5 ){
-      if ( wait_time < wait_time_opt + 5 && is_swing < 1 ){
-	//printf("now phase: %d\n", now_phase );
-	//strcpy( buffer, "command: " ); 
-	//setCommandBuffer( now_phase );
-	setSwingCommand();
-	swing_time = getElaspedTime();
-	is_swing = 1;
+      if ( now_phase != old_phase ){
+      	printf("now phase: %d\n", now_phase );
+	strcpy( buffer, "command: " ); 
+	setCommandBuffer( now_phase );
       }else{
 	strcpy( buffer, "no" );
       }
@@ -668,18 +937,31 @@ int main(){
     }
   }
   // terminate server
-  send( robotz_socket,  "END", 3, 0 );
-  //send( camera1_socket, "END", 3, 0 );
-  //send( camera2_socket, "END", 3, 0 );
+  send( robotz_socket, "END", sizeof("END"), 0 );
+  send( ball_socket,   "END", sizeof("END"), 0 );
 
-  saveDat();
-  */
+  //saveDat();
+  
   // close
   close( robotz_socket );
   close( ball_socket );
-  //close( camera1_socket );
-  //close( camera2_socket );
   
+  // save
+  /*
+  ofstream ofs( "/home/isi/tanaka/codes/robotz/data/ball.dat", ios::out);
+
+  int o = 0;
+  for ( int b_ = 0; b_ < b; b_++ )
+    for ( int n = 0; n < XYZ; n++ )
+	for ( int f = 0; f < FUTURE_TIME_NUM; f++ ){
+	  ofs << future_ball_positions_list[o] << " ";
+	  o++;
+	//ofs << future_ball_positions_list[f][ XYZ*b_ + n ] << " ";
+	  //ofs << endl;
+	}
+
+  //free( future_ball_positions_list );
+  */    
   return 0;
 }
 
