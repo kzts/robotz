@@ -36,6 +36,7 @@ using namespace Eigen;
 #define MS_TO_SEC 1.0e-3
 #define SEC_TO_MS 1.0e+3
 #define HIT_DISTANCE 20e-3
+#define NATNET_FPS 120.0
 
 #define NUM 9999
 //#define NUM_BUFFER 255
@@ -60,10 +61,12 @@ using namespace Eigen;
 #define TIME_SWING 300
 #define COMMAND_FILE "../data/robotz/command.dat"
 #define HAND_FILE    "../data/20170128/hand.dat"
+#define DOTS_FILE    "../data/20170128/dots.dat"
 #define HAND_NUM 99999
-#define FUTURE_TIME_NUM 400
-//#define FUTURE_TIME_NUM 100
-#define TIME_TICK 3e-3
+//#define FUTURE_TIME_NUM 400
+#define FUTURE_TIME_NUM 100
+//#define TIME_TICK 3e-3
+#define TIME_TICK 1e-3
 
 #define R_KNEE_COL 2
 #define L_KNEE_COL 7
@@ -71,10 +74,14 @@ using namespace Eigen;
 #define JUMP_PHASE1 1
 #define JUMP_PHASE2 2
 
+int min_hand_time = HAND_NUM;
+int dots_index[HAND_NUM] = {};
+int command_index[HAND_NUM] = {};
 double hand_positions[HAND_NUM][XYZ] = {};
 int hand_time[HAND_NUM] = {};
 double knee_command[HAND_NUM] = {};
 int jump_time[HAND_NUM] = {};
+int jump_time_list[HAND_NUM] = {};
 
 double marker_position[MAX_MARKER_NUM] = {};
 double old_position[XYZ] = {};
@@ -124,7 +131,12 @@ Vector3d coeffs_y;
 
 double future_ball_positions[FUTURE_TIME_NUM][XYZ] = {};
 
-double min_hand_position_x = MAX_DISTANCE;
+double min_hand_position_x = + MAX_DISTANCE;
+double min_hand_position_y = + MAX_DISTANCE;
+double min_hand_position_z = + MAX_DISTANCE;
+double max_hand_position_x = - MAX_DISTANCE;
+double max_hand_position_y = - MAX_DISTANCE;
+double max_hand_position_z = - MAX_DISTANCE;
 
 int ball_hit_time = 0;
 int robotz_hit_time = 0;
@@ -134,6 +146,75 @@ int is_robotz_move = 0;
 int is_ball_found = 0;
 
 //VectorXd future_time1vec(NUM_PREDICT);
+
+int hand_num    = 0;
+int dots_num    = 0;
+int command_num = 0;
+
+void changeJumpTime( int hit_jump_time ){
+  time_switch[JUMP_PHASE2] = hit_jump_time;
+  cout << "switch time change" << endl;
+}
+
+double detectTime(void){
+  int hand_index = -1;
+  int ball_index = -1;
+  double min_distance = MAX_DISTANCE;
+
+  for ( int t = 0; t < FUTURE_TIME_NUM; t++ ){
+    if ( future_ball_positions[t][X] > min_hand_position_x && 
+	 future_ball_positions[t][Y] > min_hand_position_y && 
+	 future_ball_positions[t][Z] > min_hand_position_z && 
+	 future_ball_positions[t][X] < max_hand_position_x && 
+	 future_ball_positions[t][Y] < max_hand_position_y && 
+	 future_ball_positions[t][Z] < max_hand_position_z ){
+    //if ( future_ball_positions[t][0] > min_hand_position_x ){
+      //for ( int h = 0; h < hand_num; h++ ){
+      for ( int d = 0; d < command_num; d++ ){
+	int h = command_index[d];
+	double sum = 0.0;
+	for ( int n = 0; n < XYZ; n++ ){
+	  double diff = future_ball_positions[t][n] - hand_positions[h][n];
+	  sum += diff* diff;
+	}
+	double distance = sqrt( sum );
+	if ( distance < min_distance ){
+	  hand_index   = h;
+	  ball_index   = t;
+	  min_distance = distance;
+	  
+	  if ( min_distance < HIT_DISTANCE )
+	    break;
+	}
+      }
+    }
+  }
+  // cout << time_index << " " << hand_index << " " << min_distance << endl;
+  if ( min_distance < HIT_DISTANCE ){
+    ball_hit_time     = ball_index* TIME_TICK* SEC_TO_MS;
+    robotz_hit_time   = hand_time[ hand_index ];
+    int hit_jump_time = jump_time[ hand_index ];
+  
+    cout << ball_index << " " << hand_index << " " << min_distance << " " 
+	 << ball_hit_time << " " << robotz_hit_time << " " << hit_knee_command << endl;
+
+    if ( ball_hit_time < ( robotz_hit_time + ( 1.0/ NATNET_FPS )* MS_TO_SEC )){
+    //if ( ball_hit_time < ( robotz_hit_time + TIME_TICK* MS_TO_SEC )){
+      changeJumpTime( hit_jump_time );
+    }
+  }
+}
+
+void getCommandIndex( double R_knee_command ){
+  int i = 0;
+  for ( int h = 0; h < hand_num; h++ ){
+    if ( knee_command[h] == R_knee_command ){
+      command_index[i] = h;
+      i++;
+    }
+  }
+  command_num = i;
+}
 
 void changeKneePressure( double R_knee_command ){
   value_valves_phase[JUMP_PHASE1][R_KNEE_COL] = R_knee_command;
@@ -160,17 +241,23 @@ double getRobotzTime(void){
   return now_time_;
 }
 
-
-
-double detectHit( int hand_num ){
+//double detectHit( int hand_num ){
+double detectHit(void){
   int hand_index = -1;
   int ball_index = -1;
   double min_distance = MAX_DISTANCE;
 
-
   for ( int t = 0; t < FUTURE_TIME_NUM; t++ ){
-    if ( future_ball_positions[t][0] > min_hand_position_x ){
-      for ( int h = 0; h < hand_num; h++ ){
+    if ( future_ball_positions[t][X] > min_hand_position_x && 
+	 future_ball_positions[t][Y] > min_hand_position_y && 
+	 future_ball_positions[t][Z] > min_hand_position_z && 
+	 future_ball_positions[t][X] < max_hand_position_x && 
+	 future_ball_positions[t][Y] < max_hand_position_y && 
+	 future_ball_positions[t][Z] < max_hand_position_z ){
+    //if ( future_ball_positions[t][0] > min_hand_position_x ){
+      //for ( int h = 0; h < hand_num; h++ ){
+      for ( int d = 0; d < dots_num; d++ ){
+	int h = dots_index[d];
 	double sum = 0.0;
 	for ( int n = 0; n < XYZ; n++ ){
 	  double diff = future_ball_positions[t][n] - hand_positions[h][n];
@@ -190,22 +277,25 @@ double detectHit( int hand_num ){
   }
   // cout << time_index << " " << hand_index << " " << min_distance << endl;
   if ( min_distance < HIT_DISTANCE ){
-    ball_hit_time     = ball_index* TIME_TICK* SEC_TO_MS;
+    //ball_hit_time     = ball_index* TIME_TICK* SEC_TO_MS;
+    ball_hit_time     = ball_index* TIME_TICK* SEC_TO_MS + min_hand_time;
     robotz_hit_time   = hand_time[ hand_index ];
     hit_knee_command  = knee_command[ hand_index ];
   
     cout << ball_index << " " << hand_index << " " << min_distance << " " 
 	 << ball_hit_time << " " << robotz_hit_time << " " << hit_knee_command << endl;
 
-    if ( ball_hit_time < ( robotz_hit_time + TIME_TICK )){
+    if ( ball_hit_time < ( robotz_hit_time + ( 1.0/ NATNET_FPS )* MS_TO_SEC )){
+    //if ( ball_hit_time < ( robotz_hit_time + TIME_TICK* MS_TO_SEC )){
       is_robotz_move = 1;
       gettimeofday( &robotz_ini_t, NULL );
       changeKneePressure( hit_knee_command );
+      getCommandIndex( hit_knee_command );
     }
   }
 }
 
-void predictBall(void){
+void predictBallShort(void){
   for ( int t = 0; t < FUTURE_TIME_NUM; t++ ){
     double future_time_sec = MS_TO_SEC* getElaspedTime() + t* TIME_TICK;
     future_ball_positions[t][X] = coeffs_x[0]* future_time_sec + coeffs_x[1];
@@ -214,6 +304,19 @@ void predictBall(void){
       coeffs_y[0]* future_time_sec* future_time_sec + coeffs_y[1]* future_time_sec + coeffs_y[2];
   }
 }
+
+void predictBallLong(void){
+  for ( int t = 0; t < FUTURE_TIME_NUM; t++ ){
+    //double future_time_sec = MS_TO_SEC* getElaspedTime() + t* TIME_TICK;
+    double future_time_sec = MS_TO_SEC* getElaspedTime() + t* TIME_TICK + MS_TO_SEC* min_hand_time;
+    future_ball_positions[t][X] = coeffs_x[0]* future_time_sec + coeffs_x[1];
+    future_ball_positions[t][Z] = coeffs_z[0]* future_time_sec + coeffs_z[1];
+    future_ball_positions[t][Y] = 
+      coeffs_y[0]* future_time_sec* future_time_sec + coeffs_y[1]* future_time_sec + coeffs_y[2];
+  }
+}
+
+
 
 void getBallCoeffs( int time_num ){
   // time, state vector
@@ -377,17 +480,17 @@ int getHitTime(MatrixXd ball_predict_world_, Vector3d hit_position_ ){
 }
 */
 
-int loadHandDataFile(void){
+void loadHandDataFile(void){
   FILE *fp;
   char str[NUM_BUFFER];
-  int i = 1;
   char *tmp;
+  int i = 0;
 
   fp = fopen( HAND_FILE, "r" );
 
   if (fp == NULL){
     printf( "File open error: %s\n", HAND_FILE );
-    return -1;
+    return;
   }
 
   while ( fgets( str, NUM_BUFFER, fp ) != NULL ){
@@ -402,14 +505,43 @@ int loadHandDataFile(void){
     i++;
   }
   
-  for ( int k = 0; k < ( i - 1 ); k++ )
-    if ( hand_positions[k][X] < min_hand_position_x )
-      min_hand_position_x = hand_positions[k][X];
+  for ( int k = 0; k < i; k++ )
+    if ( hand_time[k] < min_hand_time )  
+      min_hand_time = hand_time[k];
 
+  //for ( int k = 0; k < ( i - 1 ); k++ ){
+  for ( int k = 0; k < i; k++ ){
+    if ( hand_positions[k][X] < min_hand_position_x )  min_hand_position_x = hand_positions[k][X];
+    if ( hand_positions[k][Y] < min_hand_position_y )  min_hand_position_y = hand_positions[k][Y];
+    if ( hand_positions[k][Z] < min_hand_position_z )  min_hand_position_z = hand_positions[k][Z];
+    if ( hand_positions[k][X] > max_hand_position_x )  max_hand_position_x = hand_positions[k][X];
+    if ( hand_positions[k][Y] > max_hand_position_y )  max_hand_position_y = hand_positions[k][Y];
+    if ( hand_positions[k][Z] > max_hand_position_z )  max_hand_position_z = hand_positions[k][Z];
+  }
   fclose( fp );
 
-  int j = i - 1;
-  return j;
+  hand_num = i;
+}
+
+void loadDotsIndexFile(void){
+  FILE *fp;
+  char str[NUM_BUFFER];
+  int i = 0;
+
+  fp = fopen( DOTS_FILE, "r" );
+
+  if (fp == NULL){
+    printf( "File open error: %s\n", DOTS_FILE );
+    return;
+  }
+
+  while ( fgets( str, NUM_BUFFER, fp ) != NULL ){
+    dots_index[i] = atoi( str ); //printf( "%s ", tmp );
+    i++;
+  }
+  fclose( fp );
+
+  dots_num = i;
 }
 
 void loadCommand(void){
@@ -784,7 +916,8 @@ int main(){
   // filename
   getFileNames();
   loadCommand();
-  int hand_num = loadHandDataFile();
+  loadDotsIndexFile();
+  loadHandDataFile();
 
   //for ( int i = 0; i < hand_num; i++ )
   //cout << i << " " << hand_positions[i][0] << " " << hand_positions[i][1] << " " << hand_positions[i][2] << endl;
@@ -838,11 +971,19 @@ int main(){
     if ( b > ENOUGH_SAMPLE ){
       getBallCoeffs(b); // cout << "get coeffs." << endl;      
       //cout << coeffs_x[0] << " " << coeffs_x[1] << " " << coeffs_y[0] << " " << coeffs_y[1] << " " << coeffs_y[2] << " " << coeffs_z[0] << " " << coeffs_z[1] << endl;
-      predictBall(); // cout << "predict ball." << endl;
+      //predictBall(); // cout << "predict ball." << endl;
 
-      if ( is_robotz_move == 0 )
-	detectHit( hand_num ); // cout << "detect hit." << endl;
-	
+      if ( is_robotz_move == 0 ){
+	predictBallLong(); // cout << "predict ball." << endl;
+	detectHit(); // cout << "detect hit." << endl;
+	//detectHit( hand_num ); // cout << "detect hit." << endl;
+      }	
+      if ( is_robotz_move > 0 && now_phase == JUMP_PHASE2 ){
+	predictBallShort(); // cout << "predict ball." << endl;
+	detectTime(); // cout << "detect hit." << endl;
+	//detectHit( hand_num ); // cout << "detect hit." << endl;
+      }	
+
       /*
       cout << "in list ";
       for ( int n = 0; n < XYZ; n++ )
