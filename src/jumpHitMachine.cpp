@@ -27,6 +27,10 @@ using namespace Eigen;
 
 #define ROBOTZ_IP_FILE "../data/params/ip_robotz.dat"
 #define BALL_IP_FILE   "../data/params/ip_connect.dat"
+#define COMMAND_FILE   "../data/command.dat"
+#define HAND_FILE      "../data/20170128/hand.dat"
+#define DOTS_FILE      "../data/20170128/dots.dat"
+
 #define ROBOTZ_PORT 7891
 #define BALL_PORT   12345
 #define MAX_MARKER_NUM 20
@@ -59,9 +63,6 @@ using namespace Eigen;
 #define Arm_pressure 0.3
 #define TIME_END 5000
 #define TIME_SWING 300
-#define COMMAND_FILE "../data/robotz/command.dat"
-#define HAND_FILE    "../data/20170128/hand.dat"
-#define DOTS_FILE    "../data/20170128/dots.dat"
 #define HAND_NUM 99999
 //#define FUTURE_TIME_NUM 400
 #define FUTURE_TIME_NUM 100
@@ -81,7 +82,7 @@ double hand_positions[HAND_NUM][XYZ] = {};
 int hand_time[HAND_NUM] = {};
 double knee_command[HAND_NUM] = {};
 int jump_time[HAND_NUM] = {};
-int jump_time_list[HAND_NUM] = {};
+int jump_time_data[NUM] = {};
 
 double marker_position[MAX_MARKER_NUM] = {};
 double old_position[XYZ] = {};
@@ -91,7 +92,6 @@ unsigned long data_sensors[NUM][NUM_ADC][NUM_ADC_PORT] = {};
 
 int phase_time[NUM_OF_PHASE];
 double time_switch[NUM_OF_PHASE] = {};
-//double value_valves[NUM_OF_CHANNELS] = {};
 double value_valves_phase[NUM_OF_PHASE][NUM_OF_CHANNELS] = {};
 
 struct timeval ini_t, now_t, robotz_ini_t;
@@ -100,14 +100,6 @@ char buffer[NUM_BUFFER];
 
 char   filename_ball[NUM];
 char   filename_results[NUM];
-//char   filename_command[NUM];
-//int    ball_positions1[NUM][XY];
-//int    ball_positions2[NUM][XY];
-double ball_positions1[NUM][XY];
-double ball_positions2[NUM][XY];
-double time0[NUM];
-double time1[NUM];
-double time2[NUM];
 
 double robotz_time[NUM];
 double ball_time[NUM];
@@ -142,6 +134,10 @@ int is_ball_found = 0;
 int hand_num    = 0;
 int dots_num    = 0;
 int command_num = 0;
+
+void setJumpTime( int i ){
+  jump_time_data[i] = phase_time[JUMP_PHASE2];
+}
 
 void changeJumpTime( int hit_jump_time ){
   phase_time[JUMP_PHASE2] = hit_jump_time;
@@ -326,9 +322,7 @@ void getBallCoeffs( int time_num ){
   VectorXd b_y( time_num );
   VectorXd b_z( time_num );
   for ( int i = 0; i < time_num; i++ ){
-    //t_vec_1(i) = ball_time[i];
     t_vec_1(i) = MS_TO_SEC* ball_time[i];
-    //t_vec_2(i) = ball_time[i]* ball_time[i];
     t_vec_2(i) = MS_TO_SEC* ball_time[i]* MS_TO_SEC* ball_time[i];
 
     b_x(i) = ball_positions[i][X];
@@ -512,7 +506,6 @@ void setSensorValue(int i){
 void setValveValue(int i, int phase){
   int j;
   for ( j = 0; j < NUM_OF_CHANNELS; j++ )
-    //data_valves[i][j] = value_valves[j];
     data_valves[i][j] = value_valves_phase[phase][j];
 }
 
@@ -542,53 +535,73 @@ void getFileNames(void){
   int minute = local->tm_min;
   int second = local->tm_sec;
 
-  sprintf( filename_ball,    "../data/%04d%02d%02d/%02d_%02d_%02d_ball.dat", 
-	   year, month, day, hour, minute, second );
-  sprintf( filename_results, "../data/%04d%02d%02d/%02d_%02d_%02d_results.dat", 
-	   year, month, day, hour, minute, second );
-  // sprintf( filename_command, "../data/%04d%02d%02d/%02d_%02d_%02d_command.dat", 
-  //year, month, day, hour, minute, second );
+  sprintf( filename_ball,    "../data/%04d%02d%02d/%02d_%02d_%02d_ball.dat",   year, month, day, hour, minute, second );
+  sprintf( filename_results, "../data/%04d%02d%02d/%02d_%02d_%02d_robotz.dat", year, month, day, hour, minute, second );
+
   printf("ball file:  %s\n", filename_ball );
   printf("robot file: %s\n", filename_results );
 }
 
-void saveDat(void){
-  //printf("save init: %s\n", filename_ball );
+void saveRobotz( int time_num ){
+  printf("save init: %s\n", filename_results );
   int i,j,k;
-  FILE *fp_res;
+  FILE *fp;
   char str[NUM_BUFFER];
 
   // open
-  fp_res = fopen( filename_results, "w" );
-
-  if ( fp_res == NULL ){
+  fp = fopen( filename_results, "w" );
+  if ( fp == NULL ){
     printf( "File open error: %s\n", filename_results );
     return;
   }
-
   // sensor
-  for (i = 0; i < NUM; i++){
-    sprintf( str, "%8.3f\t", time0[i]);
-    fputs( str, fp_res);
-
-    for (j = 0; j< NUM_ADC; j++){
-      for (k = 0; k< NUM_ADC_PORT; k++){
-        sprintf( str, "%10lu\t", data_sensors[i][j][k]);
-        fputs( str, fp_res);
+  for (i = 0; i < time_num; i++ ){
+    sprintf( str, "%8.3f\t", robotz_time[i] );
+    fputs( str, fp );
+    for (j = 0; j< NUM_ADC; j++ ){
+      for (k = 0; k< NUM_ADC_PORT; k++ ){
+        sprintf( str, "%10lu\t", data_sensors[i][j][k] );
+        fputs( str, fp );
       }
     }
-    for (j = 0; j < NUM_OF_CHANNELS; j++){
-      sprintf( str, "%10lf\t", data_valves[i][j]);
-      fputs( str, fp_res);
+    for (j = 0; j < NUM_OF_CHANNELS; j++ ){
+      sprintf( str, "%10lf\t", data_valves[i][j] );
+      fputs( str, fp );
     }
     sprintf( str, "\n");
-    fputs(str, fp_res);
+    fputs( str, fp );
   }
-
   // close
-  fclose( fp_res );
-
+  fclose( fp );
   printf( "save done: %s\n", filename_results );
+}
+
+void saveBall( int time_num ){
+  printf("save init: %s\n", filename_ball );
+  int i,j,k;
+  FILE *fp;
+  char str[NUM_BUFFER];
+
+  // open
+  fp = fopen( filename_ball, "w" );
+  if ( fp == NULL ){
+    printf( "File open error: %s\n", filename_ball );
+    return;
+  }
+  // write
+  for ( i = 0; i < time_num; i++ ){
+    sprintf( str, "%8.3f\t", ball_time[i] );
+    fputs( str, fp );
+    for ( j = 0; j< XYZ; j++ ){
+      sprintf( str, "%8.3f\t", ball_positions[i][j] );
+      fputs( str, fp );
+    }
+    sprintf( str, "%d\n", jump_time_data[i] );
+    fputs( str, fp );
+  }
+  // close
+  fclose( fp );
+  printf( "save done: %s\n", filename_ball );
 }
 
 int setBallPosition( int i ){
@@ -796,6 +809,7 @@ int main(){
 
       if ( is_ball_found > 0 ){
 	b += setBallPosition(b);
+	setJumpTime(b);
 	//setBallPosition(b);
 	//cout << ball_positions[b-1][0] << " " << ball_positions[b-1][1] << " " << ball_positions[b-1][2] << endl;
 	//cout << old_position[0] << " " << old_position[1] << " " << old_position[2] << endl;
@@ -815,11 +829,16 @@ int main(){
       //printf( "num: %05d, phase: %02d, time: %9.3f ms \n", r, now_phase, getElaspedTime() );
      
       // terminate
+      if ( now_phase >= NUM_OF_PHASE ){
+	saveRobotz(r);
+	saveBall(b);
+	break;
+      }
       //int now_time = getElaspedTime();
-      if ( now_phase >= NUM_OF_PHASE )
+      //if ( now_phase >= NUM_OF_PHASE )
+      //break;
       //if ( now_time > TIME_END || now_time - swing_time > TIME_SWING ){
       //cout << "now: " << now_time << ", swing:" << swing_time << endl;
-	break;
       // }
 
       // recieve, set state
@@ -845,11 +864,12 @@ int main(){
       old_phase = now_phase;
     }
   }
+  //saveRobotz(r);
+  //saveBall(b);
+
   // terminate server
   send( robotz_socket, "END", sizeof("END"), 0 );
   send( ball_socket,   "END", sizeof("END"), 0 );
-
-  //saveDat();
   
   // close
   close( robotz_socket );
