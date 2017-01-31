@@ -4,9 +4,11 @@
 #include <string.h>
 #include <unistd.h>
 
-#define BUFFER_SIZE 256
+#define BUFFER_SIZE 1024
+//#define BUFFER_SIZE 2048
 #define PLUTO_PORT 12345
 #define LINUX_PORT 12345
+//#define END_SEC 10
 #define END_SEC 5
 #define USEC_SOCKET_TIMEOUT 100 
 
@@ -27,6 +29,8 @@ int makeClientSocket( char* ip_address, int port_num ){
   int clientSocket;
   struct sockaddr_in serverAddr;
   socklen_t addr_size;
+
+  char buffer[BUFFER_SIZE];
   // Create the socket. The three arguments are:
   // 1) Internet domain 2) Stream socket 3) Default protocol (TCP in this case) 
   clientSocket = socket(PF_INET, SOCK_STREAM, 0);
@@ -38,6 +42,8 @@ int makeClientSocket( char* ip_address, int port_num ){
   // Connect the socket to the server using the address struct
   addr_size = sizeof serverAddr;
   connect( clientSocket, (struct sockaddr *) &serverAddr, addr_size);
+
+  recv( clientSocket, buffer, BUFFER_SIZE, 0 );
 
   return clientSocket;
 }
@@ -55,7 +61,7 @@ int makeServerSocket( int port_num ){
   addr.sin_addr.s_addr = INADDR_ANY;
 
   setsockopt( serverSocket,
-	     SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
+	      SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
 
   socket_timeout.tv_sec  = 0;
   socket_timeout.tv_usec = USEC_SOCKET_TIMEOUT;
@@ -82,19 +88,35 @@ int main(int argc, char* argv[]){
   char buffer[BUFFER_SIZE];
   struct sockaddr_in client;
   int len;
+
   int clientSocket = makeClientSocket( ip_pluto, PLUTO_PORT );
+  printf("connectted to windows PC.\n");
+
   int serverSocket = makeServerSocket( LINUX_PORT );
+  printf("built Natnet connection server.\n");
   int robotzSocket = -1;
+
+  printf("waiting robotz connecting.\n");
+
+  int init = 0;
   // connect to robot repeatedly
   while (1) {
+    // recieve buffer from NatNet
+    recv( clientSocket, buffer, BUFFER_SIZE, 0 );
+    //printf( "buffer: %s\n", buffer );
     // connect to a robot
     if ( robotzSocket == -1 ){
       len = sizeof( client );
       robotzSocket = accept( serverSocket, (struct sockaddr *)&client, &len );
       gettimeofday( &s, NULL );      
     }
-    // recieve buffer from NatNet
-    recv( clientSocket, buffer, BUFFER_SIZE, 0 );
+    // connetion strat
+    if ( init == 0 && robotzSocket > -1 ){
+      send( robotzSocket, "ready", BUFFER_SIZE, 0 );
+      printf("connected to robotz. %d\n", robotzSocket );
+      init = 1;
+    }
+
     // send buffer to a robot
     if ( robotzSocket > -1 ){
       send( robotzSocket, buffer, BUFFER_SIZE, 0 );
@@ -103,7 +125,9 @@ int main(int argc, char* argv[]){
     // close connection to a robot
     if (( e.tv_sec - s.tv_sec ) + 1.0e-6*( e.tv_usec - s.tv_usec ) > END_SEC ){ 
       close( robotzSocket );
+      printf("close robotz connection.\n");
       robotzSocket = -1;
+      init = 0;
     }
   }
   // close connection to NatNet

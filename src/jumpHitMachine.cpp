@@ -28,8 +28,10 @@ using namespace Eigen;
 #define ROBOTZ_IP_FILE "../data/params/ip_robotz.dat"
 #define BALL_IP_FILE   "../data/params/ip_connect.dat"
 #define COMMAND_FILE   "../data/command.dat"
-#define HAND_FILE      "../data/20170128/hand.dat"
-#define DOTS_FILE      "../data/20170128/dots.dat"
+//#define HAND_FILE      "../data/20170128/hand.dat"
+#define HAND_FILE      "../data/20170130/hand.dat"
+//#define DOTS_FILE      "../data/20170128/dots.dat"
+#define DOTS_FILE      "../data/20170130/dots.dat"
 
 #define ROBOTZ_PORT 7891
 #define BALL_PORT   12345
@@ -40,16 +42,19 @@ using namespace Eigen;
 #define MS_TO_SEC 1.0e-3
 #define SEC_TO_MS 1.0e+3
 #define HIT_DISTANCE 20e-3
-#define NATNET_FPS 120.0
+//#define NATNET_FPS 120.0
+#define NATNET_FPS 60.0
+#define BALL_HEIGHT 1.0
 
 #define NUM 9999
 //#define NUM_BUFFER 255
 #define NUM_BUFFER 1024
+//#define NUM_BUFFER 2048
 #define XY 2
 //#define NUM_PREDICT 100
-#define NUM_PREDICT 300
+//#define NUM_PREDICT 300
 #define XYZ 3
-#define TXY 3
+//#define TXY 3
 #define X 0
 #define Y 1
 #define Z 2
@@ -67,7 +72,8 @@ using namespace Eigen;
 //#define FUTURE_TIME_NUM 400
 #define FUTURE_TIME_NUM 100
 //#define TIME_TICK 3e-3
-#define TIME_TICK 1e-3
+#define TIME_TICK 2e-3
+//#define TIME_TICK 1e-3
 
 #define R_KNEE_COL 2
 #define L_KNEE_COL 7
@@ -84,7 +90,7 @@ double knee_command[HAND_NUM] = {};
 int jump_time[HAND_NUM] = {};
 int jump_time_data[NUM] = {};
 
-double marker_position[MAX_MARKER_NUM] = {};
+double marker_position[XYZ* MAX_MARKER_NUM] = {};
 double old_position[XYZ] = {};
 
 double data_valves[NUM][NUM_OF_CHANNELS] = {};
@@ -107,10 +113,10 @@ double ball_positions[NUM][XYZ];
 
 int motive_frame = 0;
 
-char coefficients_filename[] = "../data/params/regression_coefficients.dat";
-char dummy_filename[]        = "../data/20161128/17_11_38_ball.dat";
-char hitposition_filename[]  = "../data/params/hitposition.dat";
-char waittime_filename[]     = "../data/params/waittime.dat";
+//char coefficients_filename[] = "../data/params/regression_coefficients.dat";
+//char dummy_filename[]        = "../data/20161128/17_11_38_ball.dat";
+//char hitposition_filename[]  = "../data/params/hitposition.dat";
+//char waittime_filename[]     = "../data/params/waittime.dat";
 
 Vector2d coeffs_x, coeffs_z;
 Vector3d coeffs_y;
@@ -191,10 +197,12 @@ double detectTime(void){
     robotz_hit_time   = hand_time[ hand_index ];
     int hit_jump_time = jump_time[ hand_index ];
   
-    cout << ball_index << " " << hand_index << " " << min_distance << " " 
+    cout << "detect time " 
+	 << ball_index << " " << hand_index << " " << min_distance << " " 
 	 << ball_hit_time << " " << robotz_hit_time << " " << hit_knee_command << endl;
 
-    if ( ball_hit_time < ( robotz_hit_time + ( 1.0/ NATNET_FPS )* MS_TO_SEC )){
+    if ( ball_hit_time < ( robotz_hit_time + ( 1.0/ NATNET_FPS )* SEC_TO_MS )){
+    //if ( ball_hit_time < ( robotz_hit_time + ( 1.0/ NATNET_FPS )* MS_TO_SEC )){
     //if ( ball_hit_time < ( robotz_hit_time + TIME_TICK* MS_TO_SEC )){
       cout << "before: " << phase_time[JUMP_PHASE2] << endl;
       changeJumpTime( hit_jump_time );
@@ -280,10 +288,12 @@ double detectHit(void){
     robotz_hit_time   = hand_time[ hand_index ];
     hit_knee_command  = knee_command[ hand_index ];
   
-    cout << ball_index << " " << hand_index << " " << min_distance << " " 
+    cout << "detect command " 
+	 << ball_index << " " << hand_index << " " << min_distance << " " 
 	 << ball_hit_time << " " << robotz_hit_time << " " << hit_knee_command << endl;
 
-    if ( ball_hit_time < ( robotz_hit_time + ( 1.0/ NATNET_FPS )* MS_TO_SEC )){
+    if ( ball_hit_time < ( robotz_hit_time + ( 1.0/ NATNET_FPS )* SEC_TO_MS )){
+    //if ( ball_hit_time < ( robotz_hit_time + ( 1.0/ NATNET_FPS )* MS_TO_SEC )){
     //if ( ball_hit_time < ( robotz_hit_time + TIME_TICK* MS_TO_SEC )){
       is_robotz_move = 1;
       gettimeofday( &robotz_ini_t, NULL );
@@ -381,6 +391,12 @@ void loadHandDataFile(void){
     if ( hand_positions[k][Y] > max_hand_position_y )  max_hand_position_y = hand_positions[k][Y];
     if ( hand_positions[k][Z] > max_hand_position_z )  max_hand_position_z = hand_positions[k][Z];
   }
+
+  cout << "hand_range: " 
+       << min_hand_position_x << ", " << max_hand_position_x << ", "
+       << min_hand_position_y << ", " << max_hand_position_y << ", "
+       << min_hand_position_z << ", " << max_hand_position_z << ". " << endl;
+
   fclose( fp );
 
   hand_num = i;
@@ -497,6 +513,9 @@ void setSensorValue(int i){
   tmp = strtok( buffer, " " ); 
   for (j = 0; j< NUM_ADC; j++){
     for (k = 0; k< NUM_ADC_PORT; k++){
+      //if ( buffer == NULL )
+      if ( tmp == NULL )
+      	break;
       tmp = strtok( NULL, " " ); 
       data_sensors[i][j][k] = atof( tmp );
     }
@@ -646,14 +665,18 @@ int setBallPosition( int i ){
     //	cout << marker_position[m]<< " ";
     //cout << endl;
     //}
+    //}
+  }else{
+    is_found = 0;
   }
   return is_found;
 }
 
 void findBall(void){
   for ( int j = 0; j < MAX_MARKER_NUM; j++ ){
-    if ( marker_position[ XYZ* j ] != 0 ){
-      if ( marker_position[ XYZ* j ] < 0 ){
+    if ( marker_position[ XYZ* j + X] != 0 ){
+      //if ( marker_position[ XYZ* j + X ] < 0 ){
+      if ( marker_position[ XYZ* j + X ] < 0 && marker_position[ XYZ* j + Y ] > BALL_HEIGHT ){
 	// find ball
 	is_ball_found     = 1;
 	for ( int n = 0; n < XYZ; n++ )
@@ -750,13 +773,29 @@ int main(){
   memset( buffer, 0, sizeof(buffer) ); recv( ball_socket,   buffer, sizeof("ready"), 0 ); printf( "ball server:   %s\n", buffer );
 
   // loop
-  int now_phase = 0, old_phase = -1;
+  int now_phase = -1, old_phase = -1;
+  //int now_phase = 0, old_phase = -1;
   int b = 0, r = 0; // counter
-  int swing_time = 100000;
-  int is_swing = 0;
+  //int swing_time = 100000;
+  //int is_swing = 0;
   
   gettimeofday( &ini_t, NULL );
   while (1){
+    //cout << "r: " << r << ". b: " << b << ". phase: " << now_phase << ". time: "  << getElaspedTime() << endl;
+      // terminate
+      if ( now_phase >= NUM_OF_PHASE || getElaspedTime() > TIME_END ){
+	// terminate server
+	send( robotz_socket, "END", sizeof("END"), 0 );
+	send( ball_socket,   "END", sizeof("END"), 0 );
+	// close socket
+	close( robotz_socket );
+	close( ball_socket );
+	// save
+	saveRobotz(r);
+	saveBall(b);
+	break;
+      }
+
     //// predict
     if ( b > ENOUGH_SAMPLE ){
       getBallCoeffs(b); // cout << "get coeffs." << endl;      
@@ -768,7 +807,9 @@ int main(){
 	detectHit(); // cout << "detect hit." << endl;
 	//detectHit( hand_num ); // cout << "detect hit." << endl;
       }	
-      if ( is_robotz_move > 0 && now_phase == JUMP_PHASE2 ){
+      if ( is_robotz_move > 0 && now_phase <= JUMP_PHASE2 ){
+      //if ( is_robotz_move > 0 && now_phase == JUMP_PHASE2 ){
+	//cout << "adjustment doing." << endl;
 	predictBallShort(); // cout << "predict ball." << endl;
 	detectTime(); // cout << "detect hit." << endl;
 	//detectHit( hand_num ); // cout << "detect hit." << endl;
@@ -792,14 +833,15 @@ int main(){
     if ( FD_ISSET( ball_socket, &fds )){
       memset( buffer, 0, sizeof(buffer) ); 
       recv( ball_socket, buffer, sizeof(buffer), 0 );
-
+      //printf( "ball: %s\n", buffer );
       for ( int i = 0; i < MAX_MARKER_NUM; i++ )
 	marker_position[i] = 0;
 
+      //cout << "set marker position." << endl;
       setMarkerPosition();
 
-      memset( buffer, 0, sizeof(buffer) ); 
-      send( ball_socket, buffer, sizeof(buffer), 0 );
+      //memset( buffer, 0, sizeof(buffer) ); 
+      //send( ball_socket, buffer, sizeof(buffer), 0 );
       
       //if ( marker_position[0] != 0 ){
       //for ( int i = 0; i < MAX_MARKER_NUM; i++ )
@@ -829,23 +871,25 @@ int main(){
       //printf( "num: %05d, phase: %02d, time: %9.3f ms \n", r, now_phase, getElaspedTime() );
      
       // terminate
-      if ( now_phase >= NUM_OF_PHASE ){
-	saveRobotz(r);
-	saveBall(b);
-	break;
-      }
-      //int now_time = getElaspedTime();
+      //if ( now_phase >= NUM_OF_PHASE || getElaspedTime() > TIME_END ){
+	//saveRobotz(r);
+	//saveBall(b);
+	//break;
+	//}
       //if ( now_phase >= NUM_OF_PHASE )
-      //break;
       //if ( now_time > TIME_END || now_time - swing_time > TIME_SWING ){
       //cout << "now: " << now_time << ", swing:" << swing_time << endl;
       // }
 
       // recieve, set state
       memset( buffer, 0, sizeof(buffer) );
-      recv( robotz_socket, buffer, sizeof(buffer), 0); //printf( "robotz: %s\n", buffer );
-      if ( strlen( buffer ) > strlen( "sensor: " ))
+      recv( robotz_socket, buffer, sizeof(buffer), 0); 
+      if ( strlen( buffer ) > strlen( "sensor: " )){
+	//printf( "robotz: %s\n", buffer );
+	//cout << "set sensor value." << endl;
 	setSensorValue(r);
+      }
+      //cout << "set valve value." << endl;
       setValveValue( r, now_phase );
       robotz_time[r] = getElaspedTime();
 
@@ -868,12 +912,12 @@ int main(){
   //saveBall(b);
 
   // terminate server
-  send( robotz_socket, "END", sizeof("END"), 0 );
-  send( ball_socket,   "END", sizeof("END"), 0 );
+  //send( robotz_socket, "END", sizeof("END"), 0 );
+  //send( ball_socket,   "END", sizeof("END"), 0 );
   
   // close
-  close( robotz_socket );
-  close( ball_socket );
+  //close( robotz_socket );
+  //close( ball_socket );
   
   // save
   /*

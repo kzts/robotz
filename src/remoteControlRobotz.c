@@ -9,17 +9,17 @@
 #include <time.h>
 #include <arpa/inet.h>
 
-#define NUM_OF_BUFFER 1024
+#define NUM_OF_BUFFER 2048
 
 char buffer_recv[NUM_OF_BUFFER];
 char buffer_send[NUM_OF_BUFFER];
 
 // bbb
-#define MAX_str 1024
+#define MAX_str 2048
 #define NUM_OF_SAMPLES 99999
 #define NUM_OF_PHASE 10
 #define NUM_ADC_PORT 8
-#define NUM_ADC 2
+#define NUM_ADC 3
 #define NUM_OF_CHANNELS 16
 #define PORT_NUM 7891
 
@@ -114,7 +114,8 @@ void loadCommand(void){
   double val;
 
   //fp_cmd = fopen( "../data/pitching/command.dat", "r");
-  fp_cmd = fopen( "../data/robotz/command.dat", "r");
+  //fp_cmd = fopen( "../data/robotz/command.dat", "r");
+  fp_cmd = fopen( "../data/command.dat", "r");
 
   if (fp_cmd == NULL){
     printf("File open error (command)\n");
